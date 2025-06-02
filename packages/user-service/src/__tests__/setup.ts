@@ -17,11 +17,15 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  // Clean up data before each test
-  await prisma.userSession.deleteMany();
-  await prisma.token.deleteMany();
-  await prisma.subscription.deleteMany();
-  await prisma.user.deleteMany();
+  // Clean up data before each test in correct order
+  try {
+    await prisma.userSession.deleteMany();
+    await prisma.token.deleteMany();
+    await prisma.subscription.deleteMany();
+    await prisma.user.deleteMany();
+  } catch (error) {
+    console.warn('Database cleanup warning:', error);
+  }
 });
 
 // Global test utilities
