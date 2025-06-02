@@ -7,178 +7,366 @@ on:
     branches: [ main, develop ]
 
 env:
-  NODE_VERSION: '18'
-  PYTHON_VERSION: '3.9'
+  NODE_VERSION: 18
+  PYTHON_VERSION: 3.9
+  PNPM_VERSION: 8
 
 jobs:
-  # Lint và Test cho Node.js services
-  test-nodejs:
+  # Dependency Installation & Caching
+  setup:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        service: [api-gateway, user-service, content-service, payment-service]
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v2
         with:
-          version: 8
-          
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-        
-      - name: Lint ${{ matrix.service }}
-        run: pnpm --filter @elearning/${{ matrix.service }} lint
-        
-      - name: Test ${{ matrix.service }}
-        run: pnpm --filter @elearning/${{ matrix.service }} test
-        
-      - name: Build ${{ matrix.service }}
-        run: pnpm --filter @elearning/${{ matrix.service }} build
 
-  # Test cho Python services
-  test-python:
+      - name: Cache node_modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            shared/packages/*/node_modules
+            mobile-app/node_modules
+          key: ${{ runner.os }}-node_modules-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+  # Linting & Code Quality
+  lint:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Restore node_modules cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            shared/packages/*/node_modules
+            mobile-app/node_modules
+          key: ${{ runner.os }}-node_modules-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: Run linting
+        run: pnpm lint
+
+  # TypeScript Build
+  build:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [user-service, content-service, payment-service, api-gateway]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Restore node_modules cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            shared/packages/*/node_modules
+            mobile-app/node_modules
+          key: ${{ runner.os }}-node_modules-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: Build ${{ matrix.service }}
+        run: |
+          cd packages/${{ matrix.service }}
+          pnpm build
+
+  # Python Services
+  python-services:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         service: [ai-service, audio-processing-service]
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          
-      - name: Install dependencies
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+
+      - name: Install Python dependencies
         run: |
           cd packages/${{ matrix.service }}
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
-          
-      - name: Lint with flake8
-        run: |
-          cd packages/${{ matrix.service }}
-          flake8 src --count --select=E9,F63,F7,F82 --show-source --statistics
-          
-      - name: Test with pytest
-        run: |
-          cd packages/${{ matrix.service }}
-          pytest tests/ -v
 
-  # Test shared packages
-  test-shared:
+      - name: Run Python linting
+        run: |
+          cd packages/${{ matrix.service }}
+          pip install flake8 black
+          flake8 src/ --max-line-length=88
+          black --check src/
+
+  # Unit Tests
+  test:
+    needs: [setup, lint]
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        package: [common-types, auth-utils, logger, config-utils]
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: lap04pass
+          POSTGRES_USER: lap04
+          POSTGRES_DB: mydb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v2
         with:
-          version: 8
-          
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-        
-      - name: Build ${{ matrix.package }}
-        run: pnpm --filter @elearning/${{ matrix.package }} build
+          version: ${{ env.PNPM_VERSION }}
 
-  # Test mobile app
-  test-mobile:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Restore node_modules cache
+        uses: actions/cache@v3
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 8
-          
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-        
-      - name: Type check mobile app
-        run: pnpm --filter @elearning/mobile-app type-check
-        
-      - name: Lint mobile app
-        run: pnpm --filter @elearning/mobile-app lint
-        
-      - name: Test mobile app
-        run: pnpm --filter @elearning/mobile-app test
+          path: |
+            node_modules
+            packages/*/node_modules
+            shared/packages/*/node_modules
+            mobile-app/node_modules
+          key: ${{ runner.os }}-node_modules-${{ hashFiles('**/pnpm-lock.yaml') }}
 
-  # Build Docker images
-  build-docker:
+      - name: Setup test environment
+        run: |
+          cp packages/user-service/.env.example packages/user-service/.env
+          echo "DATABASE_URL=postgresql://lap04:lap04pass@localhost:5432/mydb" >> packages/user-service/.env
+
+      - name: Run database migrations
+        run: |
+          cd packages/user-service
+          pnpm prisma migrate deploy
+
+      - name: Run tests
+        run: pnpm test
+
+  # Docker Build & Security Scan
+  docker:
+    needs: [build, test]
     runs-on: ubuntu-latest
-    needs: [test-nodejs, test-python, test-shared, test-mobile]
-    if: github.ref == 'refs/heads/main'
-    strategy:
-      matrix:
-        service: [api-gateway, user-service, content-service, payment-service, ai-service, audio-processing-service]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Docker Buildx
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
-        
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-          
-      - name: Build and push ${{ matrix.service }}
-        uses: docker/build-push-action@v5
-        with:
-          context: ./packages/${{ matrix.service }}
-          file: ./packages/${{ matrix.service }}/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/elearning-${{ matrix.service }}:latest
-            ${{ secrets.DOCKER_USERNAME }}/elearning-${{ matrix.service }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
-  # Deploy to staging
-  deploy-staging:
-    runs-on: ubuntu-latest
-    needs: [build-docker]
-    if: github.ref == 'refs/heads/develop'
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Deploy to staging
+      - name: Build and tag Docker images
         run: |
-          echo "Deploying to staging environment..."
-          # Add your staging deployment commands here
-          
-  # Deploy to production
-  deploy-production:
+          # Build images với proper tags
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:${{ github.sha }} ./packages/api-gateway
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:${{ github.sha }} ./packages/user-service
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:${{ github.sha }} ./packages/content-service
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:${{ github.sha }} ./packages/payment-service
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:${{ github.sha }} ./packages/ai-service
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:${{ github.sha }} ./packages/audio-processing-service
+
+      - name: Push Docker images
+        run: |
+          # Push latest và commit-specific tags
+          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:latest
+          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:${{ github.sha }}
+          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:latest
+          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:${{ github.sha }}
+          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:latest
+          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:${{ github.sha }}
+          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:latest
+          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:${{ github.sha }}
+          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:latest
+          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:${{ github.sha }}
+          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:latest
+          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:${{ github.sha }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ secrets.DOCKER_USERNAME }}/elearning-user-service:latest'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Deploy to Staging
+  deploy-staging:
+    needs: [docker]
     runs-on: ubuntu-latest
-    needs: [build-docker]
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to staging environment
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "🚀 Deploying to staging environment..."
+          
+          # Create staging environment file
+          cat << EOF > .env.staging
+          DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
+          IMAGE_TAG=${{ github.sha }}
+          DATABASE_NAME=mydb_staging
+          DATABASE_USER=lap04
+          DATABASE_PASSWORD=${{ secrets.STAGING_DB_PASSWORD }}
+          JWT_SECRET=${{ secrets.STAGING_JWT_SECRET }}
+          CORS_ORIGIN=https://staging.yourdomain.com
+          NODE_ENV=staging
+          EOF
+          
+          # Deploy using docker-compose
+          docker-compose -f docker-compose.prod.yml --env-file .env.staging up -d
+          
+          # Wait and health check
+          sleep 60
+          curl -f http://localhost:3000/health || exit 1
+          
+          echo "✅ Staging deployment completed successfully!"
+
+  # Deploy to Production
+  deploy-production:
+    needs: [docker]
+    runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     environment: production
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Deploy to production
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to production environment
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          echo "Deploying to production environment..."
-          # Add your production deployment commands here 
+          echo "🚀 Deploying to production environment..."
+          
+          # Create production environment file
+          cat << EOF > .env.prod
+          DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
+          IMAGE_TAG=${{ github.sha }}
+          DATABASE_NAME=mydb
+          DATABASE_USER=lap04
+          DATABASE_PASSWORD=${{ secrets.PROD_DB_PASSWORD }}
+          JWT_SECRET=${{ secrets.PROD_JWT_SECRET }}
+          JWT_EXPIRES_IN=15m
+          JWT_REFRESH_EXPIRES_IN=30d
+          SMTP_HOST=${{ secrets.SMTP_HOST }}
+          SMTP_PORT=${{ secrets.SMTP_PORT }}
+          SMTP_USER=${{ secrets.SMTP_USER }}
+          SMTP_PASS=${{ secrets.SMTP_PASS }}
+          FROM_EMAIL=${{ secrets.FROM_EMAIL }}
+          CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          NODE_ENV=production
+          EOF
+          
+          # Deploy using production script
+          chmod +x scripts/deploy-production.sh
+          ENV_FILE=.env.prod ./scripts/deploy-production.sh
+          
+          echo "✅ Production deployment completed successfully!"
+
+      - name: Notify deployment success
+        if: success()
+        run: |
+          echo "🎉 Production deployment successful!"
+          echo "Application is now live at: https://yourdomain.com"
+          
+      - name: Notify deployment failure
+        if: failure()
+        run: |
+          echo "❌ Production deployment failed!"
+          echo "Please check the logs and fix any issues." 

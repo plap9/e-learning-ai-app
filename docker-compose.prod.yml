@@ -1,0 +1,265 @@
+version: '3.8'
+
+services:
+  # Database (Production)
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres-prod
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-mydb}
+      POSTGRES_USER: ${DATABASE_USER:-lap04}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-lap04pass}
+    ports:
+      - "${DATABASE_PORT:-5432}:5432"
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - elearning-prod-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-lap04}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache (Production)
+  redis:
+    image: redis:7-alpine
+    container_name: redis-prod
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+    volumes:
+      - redis_prod_data:/data
+    networks:
+      - elearning-prod-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # API Gateway (Production)
+  api-gateway:
+    image: ${DOCKER_USERNAME}/elearning-api-gateway:${IMAGE_TAG:-latest}
+    container_name: api-gateway-prod
+    ports:
+      - "${API_GATEWAY_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - USER_SERVICE_URL=http://user-service:3001
+      - CONTENT_SERVICE_URL=http://content-service:3002
+      - AI_SERVICE_URL=http://ai-service:8000
+      - PAYMENT_SERVICE_URL=http://payment-service:3003
+      - AUDIO_SERVICE_URL=http://audio-processing-service:8001
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      - CORS_ORIGIN=${CORS_ORIGIN:-https://yourdomain.com}
+    depends_on:
+      redis:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      content-service:
+        condition: service_healthy
+    networks:
+      - elearning-prod-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # User Service (Production)
+  user-service:
+    image: ${DOCKER_USERNAME}/elearning-user-service:${IMAGE_TAG:-latest}
+    container_name: user-service-prod
+    ports:
+      - "${USER_SERVICE_PORT:-3001}:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=postgresql://${DATABASE_USER:-lap04}:${DATABASE_PASSWORD:-lap04pass}@postgres:5432/${DATABASE_NAME:-mydb}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-15m}
+      - JWT_REFRESH_EXPIRES_IN=${JWT_REFRESH_EXPIRES_IN:-30d}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - FROM_EMAIL=${FROM_EMAIL}
+      - FROM_NAME=${FROM_NAME:-E-Learning AI Platform}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - elearning-prod-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Content Service (Production)
+  content-service:
+    image: ${DOCKER_USERNAME}/elearning-content-service:${IMAGE_TAG:-latest}
+    container_name: content-service-prod
+    ports:
+      - "${CONTENT_SERVICE_PORT:-3002}:3002"
+    environment:
+      - NODE_ENV=production
+      - PORT=3002
+      - DATABASE_URL=postgresql://${DATABASE_USER:-lap04}:${DATABASE_PASSWORD:-lap04pass}@postgres:5432/${DATABASE_NAME:-mydb}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      - AI_SERVICE_URL=http://ai-service:8000
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - S3_BUCKET=${S3_BUCKET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - elearning-prod-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Payment Service (Production)
+  payment-service:
+    image: ${DOCKER_USERNAME}/elearning-payment-service:${IMAGE_TAG:-latest}
+    container_name: payment-service-prod
+    ports:
+      - "${PAYMENT_SERVICE_PORT:-3003}:3003"
+    environment:
+      - NODE_ENV=production
+      - PORT=3003
+      - DATABASE_URL=postgresql://${DATABASE_USER:-lap04}:${DATABASE_PASSWORD:-lap04pass}@postgres:5432/${DATABASE_NAME:-mydb}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY}
+      - MOMO_PARTNER_CODE=${MOMO_PARTNER_CODE}
+      - MOMO_ACCESS_KEY=${MOMO_ACCESS_KEY}
+      - MOMO_SECRET_KEY=${MOMO_SECRET_KEY}
+      - ZALOPAY_APP_ID=${ZALOPAY_APP_ID}
+      - ZALOPAY_KEY1=${ZALOPAY_KEY1}
+      - ZALOPAY_KEY2=${ZALOPAY_KEY2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - elearning-prod-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # AI Service (Production)
+  ai-service:
+    image: ${DOCKER_USERNAME}/elearning-ai-service:${IMAGE_TAG:-latest}
+    container_name: ai-service-prod
+    ports:
+      - "${AI_SERVICE_PORT:-8000}:8000"
+    environment:
+      - ENVIRONMENT=production
+      - PORT=8000
+      - DATABASE_URL=postgresql://${DATABASE_USER:-lap04}:${DATABASE_PASSWORD:-lap04pass}@postgres:5432/${DATABASE_NAME:-mydb}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/gcp-key.json
+      - HF_TOKEN=${HF_TOKEN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - elearning-prod-network
+    restart: unless-stopped
+    volumes:
+      - ./credentials:/app/credentials:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Audio Processing Service (Production)
+  audio-processing-service:
+    image: ${DOCKER_USERNAME}/elearning-audio-service:${IMAGE_TAG:-latest}
+    container_name: audio-service-prod
+    ports:
+      - "${AUDIO_SERVICE_PORT:-8001}:8001"
+    environment:
+      - ENVIRONMENT=production
+      - PORT=8001
+      - DATABASE_URL=postgresql://${DATABASE_USER:-lap04}:${DATABASE_PASSWORD:-lap04pass}@postgres:5432/${DATABASE_NAME:-mydb}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
+      - ELEVEN_LABS_API_KEY=${ELEVEN_LABS_API_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - S3_BUCKET=${S3_BUCKET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - elearning-prod-network
+    restart: unless-stopped
+    volumes:
+      - audio_files_prod:/app/audio-files
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx Reverse Proxy (Production)
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api-gateway
+    networks:
+      - elearning-prod-network
+    restart: unless-stopped
+
+networks:
+  elearning-prod-network:
+    driver: bridge
+
+volumes:
+  postgres_prod_data:
+    driver: local
+  redis_prod_data:
+    driver: local
+  audio_files_prod:
+    driver: local 

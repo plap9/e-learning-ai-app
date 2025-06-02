@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -10,7 +10,7 @@ import authRoutes from './routes/auth.routes';
 // Load environment variables
 dotenv.config();
 
-const app = express();
+const app: Application = express();
 const PORT = process.env.PORT || 3001;
 
 // Security middleware
@@ -138,9 +138,14 @@ app.use((error: any, req: express.Request, res: express.Response, next: express.
   });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`👤 User Service running on port ${PORT}`);
-  console.log(`📚 API Documentation: http://localhost:${PORT}/docs`);
-  console.log(`❤️  Health Check: http://localhost:${PORT}/health`);
-}); 
+// Export app for testing
+export { app };
+
+// Start server only if not in test environment
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`👤 User Service running on port ${PORT}`);
+    console.log(`📚 API Documentation: http://localhost:${PORT}/docs`);
+    console.log(`❤️  Health Check: http://localhost:${PORT}/health`);
+  });
+} 
