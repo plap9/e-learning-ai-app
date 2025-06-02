@@ -1,0 +1,855 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ================================
+// USER MANAGEMENT
+// ================================
+
+model User {
+  id                   String    @id @default(cuid())
+  email                String    @unique
+  passwordHash         String
+  firstName            String
+  lastName             String
+  avatar               String?
+  dateOfBirth          DateTime?
+  gender               Gender?
+  phoneNumber          String?
+  language             String    @default("en")
+  timezone             String    @default("UTC")
+  isActive             Boolean   @default(true)
+  isVerified           Boolean   @default(false)
+  verificationToken    String?
+  resetPasswordToken   String?
+  resetPasswordExpires DateTime?
+  lastLoginAt          DateTime?
+  
+  // Soft Delete
+  deletedAt            DateTime?
+  
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relationships
+  profile              UserProfile?
+  enrollments          Enrollment[]
+  progress             LearningProgress[]
+  sessions             UserSession[]
+  payments             Payment[]
+  subscriptions        Subscription[]
+  achievements         UserAchievement[]
+  conversations        Conversation[]
+  audioRecordings      AudioRecording[]
+  reviews              Review[]
+  exerciseSubmissions  ExerciseSubmission[]
+  tokens               Token[]
+  flashcards           Flashcard[]
+  mistakes             UserMistake[]
+
+  // Indexes for performance
+  @@index([email])
+  @@index([isActive])
+  @@index([isVerified])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model UserProfile {
+  id              String         @id @default(cuid())
+  userId          String         @unique
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  currentLevel    ProficiencyLevel @default(BEGINNER)
+  targetLevel     ProficiencyLevel @default(INTERMEDIATE)
+  learningGoals   String[]
+  interests       String[]
+  preferredTopics String[]
+  studyTimePerDay Int?           // minutes per day
+  reminderTime    String?        // HH:MM format
+  isPublic        Boolean        @default(false)
+  bio             String?
+  
+  // Learning preferences
+  visualLearning      Boolean @default(true)
+  auditoryLearning    Boolean @default(true)
+  kinestheticLearning Boolean @default(false)
+  
+  // Gamification - Streak Tracking
+  currentStreak       Int @default(0)  // Current consecutive days of study
+  longestStreak       Int @default(0)  // Best streak ever achieved
+  lastStudyDate       DateTime?       // Last date user studied (for streak calculation)
+  totalStudyDays      Int @default(0) // Total number of days studied
+  
+  // Study Statistics
+  totalStudyTime      Int @default(0) // Total minutes studied
+  weeklyGoalMinutes   Int @default(150) // Weekly study goal (default 2.5 hours)
+  monthlyGoalMinutes  Int @default(600) // Monthly study goal (default 10 hours)
+  
+  // Soft Delete
+  deletedAt       DateTime?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([currentLevel])
+  @@index([currentStreak])
+  @@index([longestStreak])
+  @@index([lastStudyDate])
+  @@index([deletedAt])
+  @@map("user_profiles")
+}
+
+model UserSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
+// Enhanced Token Management
+model Token {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      TokenType
+  token     String    @unique
+  expiresAt DateTime
+  isUsed    Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@index([type])
+  @@index([expiresAt])
+  @@index([isUsed])
+  @@map("tokens")
+}
+
+// ================================
+// CONTENT MANAGEMENT
+// ================================
+
+model Course {
+  id               String           @id @default(cuid())
+  title            String
+  description      String
+  shortDescription String?
+  thumbnail        String?
+  level            ProficiencyLevel
+  category         CourseCategory
+  tags             String[]
+  language         String           @default("en")
+  estimatedHours   Float?
+  price            Decimal?         @db.Decimal(10, 2)
+  isPublished      Boolean          @default(false)
+  isFree           Boolean          @default(false)
+  order            Int?
+
+  // SEO
+  slug            String  @unique
+  metaTitle       String?
+  metaDescription String?
+
+  // AI Generation
+  isAiGenerated Boolean @default(false)
+  aiPrompt      String?
+
+  // Stats for optimization
+  totalEnrollments Int @default(0)
+  averageRating    Float?
+  
+  // Soft Delete
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  lessons       Lesson[]
+  enrollments   Enrollment[]
+  reviews       Review[]
+  prerequisites CoursePrerequisite[] @relation("CoursePrerequisites")
+  dependents    CoursePrerequisite[] @relation("DependentCourses")
+
+  // Comprehensive indexes
+  @@index([level])
+  @@index([category])
+  @@index([isPublished])
+  @@index([isFree])
+  @@index([language])
+  @@index([totalEnrollments])
+  @@index([averageRating])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@index([slug])
+  @@map("courses")
+}
+
+model CoursePrerequisite {
+  id             String @id @default(cuid())
+  courseId       String
+  prerequisiteId String
+
+  course       Course @relation("CoursePrerequisites", fields: [courseId], references: [id], onDelete: Cascade)
+  prerequisite Course @relation("DependentCourses", fields: [prerequisiteId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, prerequisiteId])
+  @@index([courseId])
+  @@index([prerequisiteId])
+  @@map("course_prerequisites")
+}
+
+model Lesson {
+  id       String @id @default(cuid())
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  content     String
+  contentType ContentType @default(TEXT)
+  videoUrl    String?
+  audioUrl    String?
+  duration    Int?
+  order       Int
+  isPublished Boolean     @default(false)
+
+  // AI Generation
+  isAiGenerated Boolean         @default(false)
+  aiPrompt      String?
+  difficulty    DifficultyLevel @default(INTERMEDIATE)
+
+  // Stats
+  completionCount Int @default(0)
+  
+  // Soft Delete
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  exercises Exercise[]
+  progress  LearningProgress[]
+  flashcards Flashcard[]
+
+  // Indexes for performance
+  @@index([courseId])
+  @@index([isPublished])
+  @@index([difficulty])
+  @@index([order])
+  @@index([deletedAt])
+  @@map("lessons")
+}
+
+model Exercise {
+  id       String @id @default(cuid())
+  lessonId String
+  lesson   Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  title         String
+  description   String?
+  type          ExerciseType
+  content       Json
+  correctAnswer Json?
+  explanation   String?
+  points        Int          @default(10)
+  timeLimit     Int?
+  order         Int
+
+  // AI Generation
+  isAiGenerated Boolean         @default(false)
+  aiPrompt      String?
+  difficulty    DifficultyLevel @default(INTERMEDIATE)
+
+  // Stats
+  attemptCount    Int   @default(0)
+  successRate     Float @default(0)
+  averageScore    Float @default(0)
+  
+  // Soft Delete
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  submissions ExerciseSubmission[]
+
+  @@index([lessonId])
+  @@index([type])
+  @@index([difficulty])
+  @@index([order])
+  @@index([deletedAt])
+  @@map("exercises")
+}
+
+model ExerciseSubmission {
+  id         String   @id @default(cuid())
+  exerciseId String
+  exercise   Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  answer    Json
+  isCorrect Boolean
+  score     Float
+  timeSpent Int?
+  attempts  Int     @default(1)
+  feedback  String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([exerciseId, userId])
+  @@index([exerciseId])
+  @@index([userId])
+  @@index([isCorrect])
+  @@index([score])
+  @@index([createdAt])
+  @@map("exercise_submissions")
+}
+
+// ================================
+// LEARNING PROGRESS
+// ================================
+
+model Enrollment {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  progress    Float     @default(0)
+  isCompleted Boolean   @default(false)
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@unique([userId, courseId])
+  @@index([userId])      // Find all courses for a user
+  @@index([courseId])    // Find all users in a course
+  @@index([isCompleted])
+  @@index([progress])
+  @@index([startedAt])
+  @@map("enrollments")
+}
+
+model LearningProgress {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId String
+  lesson   Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  isCompleted    Boolean   @default(false)
+  timeSpent      Int       @default(0)
+  score          Float?
+  attempts       Int       @default(0)
+  lastAccessedAt DateTime  @default(now())
+  completedAt    DateTime?
+
+  @@unique([userId, lessonId])
+  @@index([userId])
+  @@index([lessonId])
+  @@index([isCompleted])
+  @@index([lastAccessedAt])
+  @@map("learning_progress")
+}
+
+model UserAchievement {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  earnedAt DateTime @default(now())
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+  @@index([achievementId])
+  @@index([earnedAt])
+  @@map("user_achievements")
+}
+
+model Achievement {
+  id          String          @id @default(cuid())
+  title       String
+  description String
+  icon        String?
+  type        AchievementType
+  criteria    Json
+  points      Int             @default(0)
+  isActive    Boolean         @default(true)
+
+  // Soft Delete
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  // Relationships
+  users UserAchievement[]
+
+  @@index([type])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("achievements")
+}
+
+// ================================
+// FLASHCARD & SRS SYSTEM
+// ================================
+
+model Flashcard {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId        String?  // Optional: from which lesson this card was created
+  lesson          Lesson?  @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+
+  // Card Content
+  front           String   // Front side (e.g., "Hello")
+  back            String   // Back side (e.g., "Xin chào")
+  notes           String?  // Additional notes or examples
+  cardType        FlashcardType @default(VOCABULARY)
+  
+  // SRS (Spaced Repetition System) Fields
+  nextReviewAt    DateTime @default(now()) // When to review this card next
+  interval        Int      @default(1)     // Days until next review
+  repetitions     Int      @default(0)     // Number of successful reviews
+  easeFactor      Float    @default(2.5)   // Ease factor for SRS algorithm
+  quality         Int?     // Last quality of response (0-5)
+  
+  // Statistics
+  totalReviews    Int      @default(0)
+  correctReviews  Int      @default(0)
+  
+  // Status
+  isActive        Boolean  @default(true)
+  isMastered      Boolean  @default(false) // Card mastered (very long interval)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relationships
+  reviews         FlashcardReview[]
+
+  @@index([userId, nextReviewAt])  // Critical for SRS queries
+  @@index([userId, isActive])
+  @@index([userId, isMastered])
+  @@index([lessonId])
+  @@index([cardType])
+  @@map("flashcards")
+}
+
+model FlashcardReview {
+  id          String    @id @default(cuid())
+  flashcardId String
+  flashcard   Flashcard @relation(fields: [flashcardId], references: [id], onDelete: Cascade)
+  userId      String    // Denormalized for faster queries
+  
+  quality     Int       // Quality of response (0-5, SM-2 algorithm)
+  timeSpent   Int?      // Milliseconds spent on review
+  wasCorrect  Boolean   // Whether the answer was correct
+  
+  // SRS state after this review
+  newInterval    Int
+  newEaseFactor  Float
+  newRepetitions Int
+  
+  reviewedAt  DateTime  @default(now())
+
+  @@index([flashcardId])
+  @@index([userId, reviewedAt])
+  @@map("flashcard_reviews")
+}
+
+// ================================
+// MISTAKE PATTERN ANALYSIS
+// ================================
+
+model UserMistake {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  mistakeType  MistakeType  // Type of mistake (grammar, pronunciation, etc.)
+  mistakeCode  String       // Specific error code (e.g., "PAST_TENSE", "PRONUNCIATION_TH")
+  context      String?      // The sentence/context where mistake occurred
+  correction   String?      // The correct version
+  
+  // Frequency and recency
+  count        Int          @default(1)  // How many times this mistake occurred
+  severity     MistakeSeverity @default(MEDIUM)
+  lastSeenAt   DateTime     @default(now())
+  firstSeenAt  DateTime     @default(now())
+  
+  // Source information
+  sourceType   String?      // Where the mistake was identified (exercise, conversation, etc.)
+  sourceId     String?      // ID of the source (exerciseId, conversationId, etc.)
+  
+  // Learning recommendation
+  isResolved   Boolean      @default(false) // Has user improved on this mistake?
+  practiceCount Int         @default(0)     // How many times user practiced this
+  
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([userId, mistakeType])
+  @@index([userId, mistakeCode])
+  @@index([userId, isResolved])
+  @@index([lastSeenAt])
+  @@index([severity])
+  @@unique([userId, mistakeCode, context]) // Prevent duplicate mistakes with same context
+  @@map("user_mistakes")
+}
+
+// ================================
+// PAYMENT SYSTEM
+// ================================
+
+model Subscription {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  plan      SubscriptionPlan
+  status    SubscriptionStatus
+  startDate DateTime
+  endDate   DateTime?
+  autoRenew Boolean            @default(true)
+
+  // Payment provider details
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  momoCustomerId       String?
+  zalopayCustomerId    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  payments Payment[]
+
+  @@index([userId])
+  @@index([plan])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+  @@map("subscriptions")
+}
+
+model Payment {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
+
+  amount   Decimal         @db.Decimal(10, 2)
+  currency String          @default("USD")
+  status   PaymentStatus
+  provider PaymentProvider
+
+  // Provider-specific IDs
+  stripePaymentId      String?
+  momoTransactionId    String?
+  zalopayTransactionId String?
+
+  // Metadata
+  description   String?
+  metadata      Json?
+  failureReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])           // All payments by user
+  @@index([subscriptionId])   // All payments for subscription
+  @@index([provider])         // Filter by payment provider
+  @@index([status])           // Filter by payment status
+  @@index([createdAt])        // Sort by date
+  @@index([amount])           // Sort by amount
+  @@map("payments")
+}
+
+// ================================
+// AI & CONVERSATION
+// ================================
+
+model Conversation {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title      String?
+  topic      String?
+  language   String          @default("en")
+  difficulty DifficultyLevel @default(INTERMEDIATE)
+  isActive   Boolean         @default(true)
+
+  // Stats
+  messageCount Int @default(0)
+  
+  // Soft Delete
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  messages ConversationMessage[]
+
+  @@index([userId])
+  @@index([language])
+  @@index([difficulty])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@index([updatedAt])
+  @@map("conversations")
+}
+
+model ConversationMessage {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  role     MessageRole
+  content  String
+  audioUrl String?
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([role])
+  @@index([createdAt])
+  @@map("conversation_messages")
+}
+
+model AudioRecording {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fileName        String
+  originalText    String?
+  transcribedText String?
+  audioUrl        String
+  duration        Float?
+  fileSize        Int?
+
+  // Analysis results
+  pronunciationScore Float?
+  fluencyScore       Float?
+  accuracyScore      Float?
+  completenessScore  Float?
+  overallScore       Float?
+
+  feedback          String?
+  suggestions       String[]
+  processingStatus  AudioProcessingStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([processingStatus])
+  @@index([overallScore])
+  @@index([createdAt])
+  @@map("audio_recordings")
+}
+
+model Review {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  rating      Int
+  title       String?
+  content     String?
+  isPublished Boolean @default(true)
+
+  // Soft Delete
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, courseId])
+  @@index([courseId])
+  @@index([rating])
+  @@index([isPublished])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("reviews")
+}
+
+// ================================
+// ENUMS
+// ================================
+
+enum TokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+  TWO_FACTOR_AUTH
+  API_ACCESS
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum ProficiencyLevel {
+  BEGINNER
+  ELEMENTARY
+  INTERMEDIATE
+  UPPER_INTERMEDIATE
+  ADVANCED
+  NATIVE
+}
+
+enum CourseCategory {
+  GRAMMAR
+  VOCABULARY
+  CONVERSATION
+  PRONUNCIATION
+  LISTENING
+  READING
+  WRITING
+  BUSINESS_ENGLISH
+  EXAM_PREPARATION
+  GENERAL_ENGLISH
+}
+
+enum ContentType {
+  TEXT
+  VIDEO
+  AUDIO
+  INTERACTIVE
+  MIXED
+}
+
+enum DifficultyLevel {
+  EASY
+  INTERMEDIATE
+  HARD
+}
+
+enum ExerciseType {
+  MULTIPLE_CHOICE
+  FILL_IN_BLANK
+  DRAG_AND_DROP
+  MATCHING
+  SPEAKING
+  LISTENING
+  READING_COMPREHENSION
+  WRITING
+  TRANSLATION
+  PRONUNCIATION
+}
+
+enum FlashcardType {
+  VOCABULARY
+  GRAMMAR
+  PHRASE
+  SENTENCE
+  PRONUNCIATION
+  LISTENING
+}
+
+enum MistakeType {
+  GRAMMAR
+  VOCABULARY
+  PRONUNCIATION
+  LISTENING
+  SPEAKING
+  WRITING
+  READING
+}
+
+enum MistakeSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum SubscriptionPlan {
+  FREE
+  BASIC
+  PREMIUM
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  CANCELLED
+  EXPIRED
+  TRIAL
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentProvider {
+  STRIPE
+  MOMO
+  ZALOPAY
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum AudioProcessingStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum AchievementType {
+  COURSE_COMPLETION
+  LESSON_STREAK
+  EXERCISE_MASTERY
+  PRONUNCIATION_IMPROVEMENT
+  DAILY_GOAL
+  WEEKLY_GOAL
+  MONTHLY_GOAL
+  STREAK_MILESTONE
+  FLASHCARD_MASTERY
+}
