@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import authRoutes from './routes/auth.routes';
 
 // Load environment variables
 dotenv.config();
@@ -43,38 +44,8 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Authentication routes
-app.post('/auth/register', (req, res) => {
-  res.status(200).json({
-    message: 'User registration endpoint',
-    status: 'Not implemented yet',
-    service: 'User Service'
-  });
-});
-
-app.post('/auth/login', (req, res) => {
-  res.status(200).json({
-    message: 'User login endpoint',
-    status: 'Not implemented yet',
-    service: 'User Service'
-  });
-});
-
-app.post('/auth/logout', (req, res) => {
-  res.status(200).json({
-    message: 'User logout endpoint',
-    status: 'Not implemented yet',
-    service: 'User Service'
-  });
-});
-
-app.post('/auth/refresh', (req, res) => {
-  res.status(200).json({
-    message: 'Token refresh endpoint',
-    status: 'Not implemented yet',
-    service: 'User Service'
-  });
-});
+// Routes
+app.use('/auth', authRoutes);
 
 // User profile routes
 app.get('/profile', (req, res) => {

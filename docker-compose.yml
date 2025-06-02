@@ -6,7 +6,7 @@ services:
     image: postgres:15-alpine
     container_name: postgres-db
     environment:
-      POSTGRES_DB: elearning_ai
+      POSTGRES_DB: postgres
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres123
     ports:
@@ -67,7 +67,7 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3001
-      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/elearning_ai
+      - DATABASE_URL=postgresql://lap04:lap04pass@postgres:5432/mydb
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=your-jwt-secret-key
       - JWT_EXPIRES_IN=7d
@@ -91,7 +91,7 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3002
-      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/elearning_ai
+      - DATABASE_URL=postgresql://lap04:lap04pass@postgres:5432/mydb
       - REDIS_URL=redis://redis:6379
       - AI_SERVICE_URL=http://ai-service:8000
     depends_on:
@@ -114,7 +114,7 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3003
-      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/elearning_ai
+      - DATABASE_URL=postgresql://lap04:lap04pass@postgres:5432/mydb
       - REDIS_URL=redis://redis:6379
       - STRIPE_SECRET_KEY=your-stripe-secret-key
       - STRIPE_WEBHOOK_SECRET=your-stripe-webhook-secret
@@ -138,7 +138,7 @@ services:
     environment:
       - ENVIRONMENT=development
       - PORT=8000
-      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/elearning_ai
+      - DATABASE_URL=postgresql://lap04:lap04pass@postgres:5432/mydb
       - REDIS_URL=redis://redis:6379
       - OPENAI_API_KEY=your-openai-api-key
       - GOOGLE_CLOUD_PROJECT=your-gcp-project
@@ -163,7 +163,7 @@ services:
     environment:
       - ENVIRONMENT=development
       - PORT=8001
-      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/elearning_ai
+      - DATABASE_URL=postgresql://lap04:lap04pass@postgres:5432/mydb
       - REDIS_URL=redis://redis:6379
       - OPENAI_API_KEY=your-openai-api-key
       - GOOGLE_CLOUD_PROJECT=your-gcp-project
