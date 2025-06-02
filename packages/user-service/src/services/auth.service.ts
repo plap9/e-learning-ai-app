@@ -1,4 +1,4 @@
-import { PrismaClient, SubscriptionPlan, SubscriptionStatus, TokenType } from '@prisma/client';
+import { PrismaClient, SubscriptionPlan, SubscriptionStatus, TokenType, Prisma } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt, { SignOptions } from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -40,7 +40,7 @@ class AuthService {
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
     // 4. Create user in database transaction
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Create user
       const user = await tx.user.create({
         data: {
