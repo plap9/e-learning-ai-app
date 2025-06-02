@@ -1,0 +1,185 @@
+version: '3.8'
+
+services:
+  # Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres-db
+    environment:
+      POSTGRES_DB: elearning_ai
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - elearning-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: redis-cache
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - elearning-network
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./packages/api-gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - USER_SERVICE_URL=http://user-service:3001
+      - CONTENT_SERVICE_URL=http://content-service:3002
+      - AI_SERVICE_URL=http://ai-service:8000
+      - PAYMENT_SERVICE_URL=http://payment-service:3003
+      - AUDIO_SERVICE_URL=http://audio-processing-service:8001
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+      - user-service
+      - content-service
+    networks:
+      - elearning-network
+    volumes:
+      - ./packages/api-gateway:/app
+      - /app/node_modules
+
+  # User Service
+  user-service:
+    build:
+      context: ./packages/user-service
+      dockerfile: Dockerfile
+    container_name: user-service
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/elearning_ai
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=your-jwt-secret-key
+      - JWT_EXPIRES_IN=7d
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - elearning-network
+    volumes:
+      - ./packages/user-service:/app
+      - /app/node_modules
+
+  # Content Service
+  content-service:
+    build:
+      context: ./packages/content-service
+      dockerfile: Dockerfile
+    container_name: content-service
+    ports:
+      - "3002:3002"
+    environment:
+      - NODE_ENV=development
+      - PORT=3002
+      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/elearning_ai
+      - REDIS_URL=redis://redis:6379
+      - AI_SERVICE_URL=http://ai-service:8000
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - elearning-network
+    volumes:
+      - ./packages/content-service:/app
+      - /app/node_modules
+
+  # Payment Service
+  payment-service:
+    build:
+      context: ./packages/payment-service
+      dockerfile: Dockerfile
+    container_name: payment-service
+    ports:
+      - "3003:3003"
+    environment:
+      - NODE_ENV=development
+      - PORT=3003
+      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/elearning_ai
+      - REDIS_URL=redis://redis:6379
+      - STRIPE_SECRET_KEY=your-stripe-secret-key
+      - STRIPE_WEBHOOK_SECRET=your-stripe-webhook-secret
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - elearning-network
+    volumes:
+      - ./packages/payment-service:/app
+      - /app/node_modules
+
+  # AI Service (Python)
+  ai-service:
+    build:
+      context: ./packages/ai-service
+      dockerfile: Dockerfile
+    container_name: ai-service
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - PORT=8000
+      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/elearning_ai
+      - REDIS_URL=redis://redis:6379
+      - OPENAI_API_KEY=your-openai-api-key
+      - GOOGLE_CLOUD_PROJECT=your-gcp-project
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/gcp-key.json
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - elearning-network
+    volumes:
+      - ./packages/ai-service:/app
+      - ./credentials:/app/credentials
+
+  # Audio Processing Service (Python)
+  audio-processing-service:
+    build:
+      context: ./packages/audio-processing-service
+      dockerfile: Dockerfile
+    container_name: audio-processing-service
+    ports:
+      - "8001:8001"
+    environment:
+      - ENVIRONMENT=development
+      - PORT=8001
+      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/elearning_ai
+      - REDIS_URL=redis://redis:6379
+      - OPENAI_API_KEY=your-openai-api-key
+      - GOOGLE_CLOUD_PROJECT=your-gcp-project
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - elearning-network
+    volumes:
+      - ./packages/audio-processing-service:/app
+      - ./audio-files:/app/audio-files
+
+networks:
+  elearning-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data: 

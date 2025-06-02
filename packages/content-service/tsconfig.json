@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    { "path": "../../shared/packages/common-types" },
+    { "path": "../../shared/packages/auth-utils" },
+    { "path": "../../shared/packages/logger" },
+    { "path": "../../shared/packages/config-utils" }
+  ]
+} 

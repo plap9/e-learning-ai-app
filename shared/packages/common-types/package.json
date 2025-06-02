@@ -1,0 +1,32 @@
+{
+  "name": "@elearning/common-types",
+  "version": "1.0.0",
+  "description": "Common TypeScript types and interfaces for E-Learning AI Application",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rimraf dist",
+    "dev": "tsc --watch",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.8.0",
+    "typescript": "^5.2.2",
+    "rimraf": "^5.0.5",
+    "eslint": "^8.53.0",
+    "@typescript-eslint/eslint-plugin": "^6.12.0",
+    "@typescript-eslint/parser": "^6.12.0"
+  },
+  "keywords": [
+    "types",
+    "interfaces",
+    "typescript",
+    "shared",
+    "common"
+  ],
+  "author": "Solo Developer",
+  "license": "MIT"
+} 
