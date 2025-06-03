@@ -6,12 +6,13 @@
   "scripts": {
     "start": "node dist/index.js",
     "dev": "nodemon --watch src --ext ts --exec ts-node src/index.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "clean": "rimraf dist",
     "test": "jest",
     "test:watch": "jest --watch",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
+    "postinstall": "prisma generate",
     "db:migrate": "npx prisma migrate dev",
     "db:generate": "npx prisma generate",
     "db:studio": "npx prisma studio"

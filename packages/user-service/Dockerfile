@@ -55,6 +55,9 @@ COPY --from=base /app/node_modules ./node_modules
 # Set working directory back to /app for runtime
 WORKDIR /app
 
+# Generate Prisma client in production stage (ensure it's available)
+RUN npx prisma generate --schema=./prisma/schema.prisma
+
 # Expose port
 EXPOSE 3001
 
@@ -63,4 +66,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:3001/health || exit 1
 
 # Start the application with database migration
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"] 
+CMD ["sh", "-c", "npx prisma migrate deploy --schema=./prisma/schema.prisma && node dist/index.js"] 
