@@ -438,6 +438,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup Docker Compose
+        run: |
+          # Check if docker compose is available
+          if ! docker compose version > /dev/null 2>&1; then
+            echo "Docker Compose plugin not found, installing..."
+            sudo apt-get update
+            sudo apt-get install -y docker-compose-plugin
+          fi
+          docker compose version
+
       - name: Deploy to staging environment
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
@@ -457,18 +467,34 @@ jobs:
           NODE_ENV=staging
           EOF
           
-          # Deploy using docker-compose
+          # Deploy using docker compose (new syntax)
+          echo "🧹 Cleaning up old containers..."
+          docker compose -f docker-compose.prod.yml --env-file .env.staging down --remove-orphans || echo "No existing containers to stop"
+          
           echo "📦 Pulling latest Docker images..."
-          docker-compose -f docker-compose.prod.yml --env-file .env.staging pull
+          docker compose -f docker-compose.prod.yml --env-file .env.staging pull
           
           echo "🚀 Starting staging services..."
-          docker-compose -f docker-compose.prod.yml --env-file .env.staging up -d
+          docker compose -f docker-compose.prod.yml --env-file .env.staging up -d
           
           echo "⏳ Waiting for services to be healthy..."
-          sleep 60
+          sleep 90
           
           echo "🔍 Health check..."
-          curl -f http://localhost:3000/health || (echo "Health check failed" && docker-compose -f docker-compose.prod.yml logs && exit 1)
+          for i in {1..10}; do
+            if curl -f http://localhost:3000/health; then
+              echo "✅ Health check passed on attempt $i!"
+              break
+            elif [ $i -eq 10 ]; then
+              echo "❌ Health check failed after 10 attempts"
+              echo "📋 Container logs:"
+              docker compose -f docker-compose.prod.yml --env-file .env.staging logs --tail=50
+              exit 1
+            else
+              echo "⏳ Health check attempt $i failed, retrying in 10s..."
+              sleep 10
+            fi
+          done
           
           echo "✅ Staging deployment completed successfully!"
 
@@ -481,6 +507,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Setup Docker Compose
+        run: |
+          # Check if docker compose is available
+          if ! docker compose version > /dev/null 2>&1; then
+            echo "Docker Compose plugin not found, installing..."
+            sudo apt-get update
+            sudo apt-get install -y docker-compose-plugin
+          fi
+          docker compose version
 
       - name: Deploy to production environment
         env:
@@ -509,18 +545,34 @@ jobs:
           NODE_ENV=production
           EOF
           
-          # Deploy using docker-compose
+          # Deploy using docker compose (new syntax)
+          echo "🧹 Cleaning up old containers..."
+          docker compose -f docker-compose.prod.yml --env-file .env.prod down --remove-orphans || echo "No existing containers to stop"
+          
           echo "📦 Pulling latest Docker images..."
-          docker-compose -f docker-compose.prod.yml --env-file .env.prod pull
+          docker compose -f docker-compose.prod.yml --env-file .env.prod pull
           
           echo "🚀 Starting production services..."
-          docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
+          docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
           
           echo "⏳ Waiting for services to be healthy..."
-          sleep 60
+          sleep 90
           
           echo "🔍 Health check..."
-          curl -f http://localhost:3000/health || (echo "Health check failed" && docker-compose -f docker-compose.prod.yml logs && exit 1)
+          for i in {1..10}; do
+            if curl -f http://localhost:3000/health; then
+              echo "✅ Health check passed on attempt $i!"
+              break
+            elif [ $i -eq 10 ]; then
+              echo "❌ Health check failed after 10 attempts"
+              echo "📋 Container logs:"
+              docker compose -f docker-compose.prod.yml --env-file .env.prod logs --tail=50
+              exit 1
+            else
+              echo "⏳ Health check attempt $i failed, retrying in 10s..."
+              sleep 10
+            fi
+          done
           
           echo "✅ Production deployment completed successfully!"
 
