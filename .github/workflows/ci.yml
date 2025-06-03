@@ -458,11 +458,17 @@ jobs:
           EOF
           
           # Deploy using docker-compose
+          echo "📦 Pulling latest Docker images..."
+          docker-compose -f docker-compose.prod.yml --env-file .env.staging pull
+          
+          echo "🚀 Starting staging services..."
           docker-compose -f docker-compose.prod.yml --env-file .env.staging up -d
           
-          # Wait and health check
+          echo "⏳ Waiting for services to be healthy..."
           sleep 60
-          curl -f http://localhost:3000/health || exit 1
+          
+          echo "🔍 Health check..."
+          curl -f http://localhost:3000/health || (echo "Health check failed" && docker-compose -f docker-compose.prod.yml logs && exit 1)
           
           echo "✅ Staging deployment completed successfully!"
 
@@ -503,9 +509,18 @@ jobs:
           NODE_ENV=production
           EOF
           
-          # Deploy using production script
-          chmod +x scripts/deploy-production.sh
-          ENV_FILE=.env.prod ./scripts/deploy-production.sh
+          # Deploy using docker-compose
+          echo "📦 Pulling latest Docker images..."
+          docker-compose -f docker-compose.prod.yml --env-file .env.prod pull
+          
+          echo "🚀 Starting production services..."
+          docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
+          
+          echo "⏳ Waiting for services to be healthy..."
+          sleep 60
+          
+          echo "🔍 Health check..."
+          curl -f http://localhost:3000/health || (echo "Health check failed" && docker-compose -f docker-compose.prod.yml logs && exit 1)
           
           echo "✅ Production deployment completed successfully!"
 
