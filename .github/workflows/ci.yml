@@ -322,13 +322,13 @@ jobs:
 
       - name: Build and tag Docker images
         run: |
-          # Build images với proper tags
-          docker build -t ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:${{ github.sha }} ./packages/api-gateway
-          docker build -t ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:${{ github.sha }} ./packages/user-service
-          docker build -t ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:${{ github.sha }} ./packages/content-service
-          docker build -t ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:${{ github.sha }} ./packages/payment-service
-          docker build -t ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:${{ github.sha }} ./packages/ai-service
-          docker build -t ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:${{ github.sha }} ./packages/audio-processing-service
+          # Build images với proper tags từ root context
+          docker build -f packages/api-gateway/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:${{ github.sha }} .
+          docker build -f packages/user-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:${{ github.sha }} .
+          docker build -f packages/content-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:${{ github.sha }} .
+          docker build -f packages/payment-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:${{ github.sha }} .
+          docker build -f packages/ai-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:${{ github.sha }} ./packages/ai-service
+          docker build -f packages/audio-processing-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:${{ github.sha }} ./packages/audio-processing-service
 
       - name: Push Docker images
         run: |

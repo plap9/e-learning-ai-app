@@ -1,4 +1,4 @@
-# Payment Service Dockerfile
+# Payment Service Dockerfile - Monorepo Build
 FROM node:18-alpine
 
 # Install curl for health checks
@@ -7,20 +7,32 @@ RUN apk add --no-cache curl
 # Set working directory
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copy root package files and workspace config
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+
+# Copy shared packages
+COPY shared/ ./shared/
 
 # Install pnpm
 RUN npm install -g pnpm
 
-# Install dependencies (no lockfile in individual services)
-RUN pnpm install --no-frozen-lockfile
+# Install all dependencies (monorepo)
+RUN pnpm install --frozen-lockfile
 
-# Copy source code
-COPY . .
+# Copy payment-service specific files
+COPY packages/payment-service/ ./packages/payment-service/
 
-# Build the application
-RUN pnpm build
+# Build shared packages first
+RUN pnpm --filter "@elearning/common-types" build || echo "No build script for common-types"
+RUN pnpm --filter "@elearning/auth-utils" build || echo "No build script for auth-utils"
+RUN pnpm --filter "@elearning/logger" build || echo "No build script for logger"
+RUN pnpm --filter "@elearning/config-utils" build || echo "No build script for config-utils"
+
+# Build payment-service
+RUN pnpm --filter "@elearning/payment-service" build
+
+# Set working directory to payment-service
+WORKDIR /app/packages/payment-service
 
 # Expose port
 EXPOSE 3003
