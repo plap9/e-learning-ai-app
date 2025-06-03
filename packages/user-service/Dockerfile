@@ -9,13 +9,12 @@ WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
-COPY pnpm-lock.yaml* ./
 
 # Install pnpm
 RUN npm install -g pnpm
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile
+# Install dependencies (no lockfile in individual services)
+RUN pnpm install --no-frozen-lockfile
 
 # Copy prisma schema first
 COPY prisma ./prisma/
