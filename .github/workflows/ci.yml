@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+permissions:
+  contents: read
+  actions: write
+  security-events: write
+  pull-requests: read
+
 env:
   NODE_VERSION: 18
   PYTHON_VERSION: 3.9
@@ -298,6 +304,10 @@ jobs:
     needs: [build, test]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      security-events: write
+      actions: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -322,13 +332,28 @@ jobs:
 
       - name: Build and tag Docker images
         run: |
-          # Build images với proper tags từ root context
+          echo "🐳 Building Docker images..."
+          
+          # Build Node.js services với proper tags từ root context
+          echo "Building API Gateway..."
           docker build -f packages/api-gateway/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:${{ github.sha }} .
+          
+          echo "Building User Service..."
           docker build -f packages/user-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:${{ github.sha }} .
+          
+          echo "Building Content Service..."
           docker build -f packages/content-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:${{ github.sha }} .
+          
+          echo "Building Payment Service..."
           docker build -f packages/payment-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:${{ github.sha }} .
+          
+          echo "Building AI Service..."
           docker build -f packages/ai-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:${{ github.sha }} ./packages/ai-service
+          
+          echo "Building Audio Processing Service..."
           docker build -f packages/audio-processing-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:${{ github.sha }} ./packages/audio-processing-service
+          
+          echo "✅ All Docker images built successfully!"
 
       - name: Push Docker images
         run: |
@@ -346,15 +371,60 @@ jobs:
           docker push ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:latest
           docker push ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:${{ github.sha }}
 
+  # Security Scanning (separate job to avoid blocking deployment)
+  security-scan:
+    needs: [docker]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      security-events: write
+      actions: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Cache Trivy DB
+        uses: actions/cache@v3
+        with:
+          path: .cache/trivy
+          key: trivy-cache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            trivy-cache-${{ runner.os }}-
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
+        continue-on-error: true
         with:
           image-ref: '${{ secrets.DOCKER_USERNAME }}/elearning-user-service:latest'
           format: 'sarif'
           output: 'trivy-results.sarif'
+          cache-dir: .cache/trivy
+          exit-code: '0'
+
+      - name: Check SARIF file
+        if: always()
+        run: |
+          if [ -f "trivy-results.sarif" ]; then
+            echo "✅ SARIF file exists"
+            echo "File size: $(du -h trivy-results.sarif)"
+            echo "First 10 lines of SARIF file:"
+            head -10 trivy-results.sarif || echo "Could not read file content"
+          else
+            echo "❌ SARIF file not found"
+            ls -la
+          fi
 
       - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        continue-on-error: true
         with:
           sarif_file: 'trivy-results.sarif'
 
