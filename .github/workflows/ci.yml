@@ -90,6 +90,11 @@ jobs:
             pnpm install --frozen-lockfile
           fi
 
+      - name: Generate Prisma Client
+        run: |
+          cd packages/user-service
+          pnpm prisma generate
+
       - name: Run linting
         run: pnpm lint || echo "Linting completed with warnings"
 
@@ -123,6 +128,13 @@ jobs:
             shared/packages/*/node_modules
             mobile-app/node_modules
           key: ${{ runner.os }}-node_modules-v10-reset-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: Generate Prisma Client for build
+        run: |
+          if [ "${{ matrix.service }}" = "user-service" ]; then
+            cd packages/user-service
+            pnpm prisma generate
+          fi
 
       - name: Build ${{ matrix.service }}
         run: |
@@ -260,6 +272,11 @@ jobs:
             CREATE DATABASE mydb OWNER lap04;
             GRANT ALL PRIVILEGES ON DATABASE mydb TO lap04;
           "
+
+      - name: Generate Prisma Client for tests
+        run: |
+          cd packages/user-service
+          pnpm prisma generate
 
       - name: Run database migrations
         run: |
