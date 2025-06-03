@@ -46,19 +46,25 @@ WORKDIR /app
 # Install pnpm
 RUN npm install -g pnpm
 
-# Copy package files and install production dependencies
-COPY --from=base /app/packages/content-service/package.json ./package.json
-COPY --from=base /app/packages/content-service/prisma ./prisma
+# Copy package files and monorepo configuration
+COPY --from=base /app/package.json ./package.json
 COPY --from=base /app/pnpm-lock.yaml ./pnpm-lock.yaml
+COPY --from=base /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
+COPY --from=base /app/packages/content-service/package.json ./packages/content-service/package.json
+COPY --from=base /app/packages/content-service/prisma ./packages/content-service/prisma
 
-# Install production dependencies only
+# Install production dependencies only (for the specific service)
+WORKDIR /app/packages/content-service
 RUN pnpm install --frozen-lockfile --prod
+WORKDIR /app
 
 # Copy built application
-COPY --from=base /app/packages/content-service/dist ./dist
+COPY --from=base /app/packages/content-service/dist ./packages/content-service/dist
 
 # Generate Prisma client in production stage (ensure it's available)
-RUN pnpm exec prisma generate --schema=./prisma/schema.prisma
+WORKDIR /app/packages/content-service
+RUN pnpm exec prisma generate
+WORKDIR /app
 
 # Expose port
 EXPOSE 3002
@@ -68,4 +74,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:3002/health || exit 1
 
 # Start the application with database migration
-CMD ["sh", "-c", "pnpm exec prisma migrate deploy --schema=./prisma/schema.prisma && node dist/index.js"] 
+CMD ["sh", "-c", "cd packages/content-service && pnpm exec prisma migrate deploy && node dist/index.js"] 
