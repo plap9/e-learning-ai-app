@@ -46,17 +46,19 @@ WORKDIR /app
 # Install pnpm
 RUN npm install -g pnpm
 
-# Copy built application and dependencies
-COPY --from=base /app/packages/user-service/dist ./dist
+# Copy package files and install production dependencies
 COPY --from=base /app/packages/user-service/package.json ./package.json
 COPY --from=base /app/packages/user-service/prisma ./prisma
-COPY --from=base /app/node_modules ./node_modules
+COPY --from=base /app/pnpm-lock.yaml ./pnpm-lock.yaml
 
-# Set working directory back to /app for runtime
-WORKDIR /app
+# Install production dependencies only
+RUN pnpm install --frozen-lockfile --prod
+
+# Copy built application
+COPY --from=base /app/packages/user-service/dist ./dist
 
 # Generate Prisma client in production stage (ensure it's available)
-RUN npx prisma generate --schema=./prisma/schema.prisma
+RUN pnpm exec prisma generate --schema=./prisma/schema.prisma
 
 # Expose port
 EXPOSE 3001
@@ -66,4 +68,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:3001/health || exit 1
 
 # Start the application with database migration
-CMD ["sh", "-c", "npx prisma migrate deploy --schema=./prisma/schema.prisma && node dist/index.js"] 
+CMD ["sh", "-c", "pnpm exec prisma migrate deploy --schema=./prisma/schema.prisma && node dist/index.js"] 
