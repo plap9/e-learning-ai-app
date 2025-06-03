@@ -1,5 +1,5 @@
-# API Gateway Dockerfile - Monorepo Build
-FROM node:18-alpine
+# API Gateway Dockerfile - Monorepo Multi-stage Build
+FROM node:18-alpine AS base
 
 # Install curl for health checks
 RUN apk add --no-cache curl
@@ -13,14 +13,14 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 # Copy shared packages
 COPY shared/ ./shared/
 
+# Copy api-gateway specific files
+COPY packages/api-gateway/ ./packages/api-gateway/
+
 # Install pnpm
 RUN npm install -g pnpm
 
 # Install all dependencies (monorepo)
 RUN pnpm install --frozen-lockfile
-
-# Copy api-gateway specific files
-COPY packages/api-gateway/ ./packages/api-gateway/
 
 # Build shared packages first
 RUN pnpm --filter "@elearning/common-types" build || echo "No build script for common-types"
@@ -31,8 +31,23 @@ RUN pnpm --filter "@elearning/config-utils" build || echo "No build script for c
 # Build api-gateway
 RUN pnpm --filter "@elearning/api-gateway" build
 
-# Set working directory to api-gateway
-WORKDIR /app/packages/api-gateway
+# Production stage
+FROM node:18-alpine AS production
+
+# Install curl for health checks
+RUN apk add --no-cache curl
+
+# Set working directory
+WORKDIR /app
+
+# Install pnpm
+RUN npm install -g pnpm
+
+# Copy built application and dependencies
+COPY --from=base /app/packages/api-gateway/dist ./dist
+COPY --from=base /app/packages/api-gateway/package.json ./package.json
+COPY --from=base /app/node_modules ./node_modules
+COPY --from=base /app/packages/api-gateway/node_modules ./packages/api-gateway/node_modules
 
 # Expose port
 EXPOSE 3000
@@ -42,4 +57,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 
 # Start the application
-CMD ["pnpm", "start"] 
+CMD ["node", "dist/index.js"] 

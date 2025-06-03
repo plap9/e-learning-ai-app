@@ -1,5 +1,5 @@
-# User Service Dockerfile - Monorepo Build
-FROM node:18-alpine
+# User Service Dockerfile - Monorepo Multi-stage Build
+FROM node:18-alpine AS base
 
 # Install curl for health checks
 RUN apk add --no-cache curl
@@ -13,14 +13,14 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 # Copy shared packages
 COPY shared/ ./shared/
 
+# Copy user-service specific files
+COPY packages/user-service/ ./packages/user-service/
+
 # Install pnpm
 RUN npm install -g pnpm
 
 # Install all dependencies (monorepo)
 RUN pnpm install --frozen-lockfile
-
-# Copy user-service specific files
-COPY packages/user-service/ ./packages/user-service/
 
 # Build shared packages first
 RUN pnpm --filter "@elearning/common-types" build || echo "No build script for common-types"
@@ -34,8 +34,24 @@ RUN pnpm --filter "@elearning/user-service" prisma generate
 # Build user-service
 RUN pnpm --filter "@elearning/user-service" build
 
-# Set working directory to user-service
-WORKDIR /app/packages/user-service
+# Production stage
+FROM node:18-alpine AS production
+
+# Install curl for health checks
+RUN apk add --no-cache curl
+
+# Set working directory
+WORKDIR /app
+
+# Install pnpm
+RUN npm install -g pnpm
+
+# Copy built application and dependencies
+COPY --from=base /app/packages/user-service/dist ./dist
+COPY --from=base /app/packages/user-service/package.json ./package.json
+COPY --from=base /app/packages/user-service/prisma ./prisma
+COPY --from=base /app/node_modules ./node_modules
+COPY --from=base /app/packages/user-service/node_modules ./packages/user-service/node_modules
 
 # Expose port
 EXPOSE 3001
@@ -45,4 +61,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:3001/health || exit 1
 
 # Start the application
-CMD ["pnpm", "start"] 
+CMD ["node", "dist/index.js"] 

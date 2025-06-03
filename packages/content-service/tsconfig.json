@@ -7,6 +7,13 @@
   "include": [
     "src/**/*"
   ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts",
+    "src/__tests__/**/*",
+    "dist",
+    "node_modules"
+  ],
   "references": [
     { "path": "../../shared/packages/common-types" },
     { "path": "../../shared/packages/auth-utils" },
