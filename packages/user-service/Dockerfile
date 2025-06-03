@@ -1,8 +1,8 @@
 # User Service Dockerfile - Monorepo Multi-stage Build
 FROM node:18-alpine AS base
 
-# Install curl for health checks
-RUN apk add --no-cache curl
+# Install curl for health checks and OpenSSL for Prisma
+RUN apk add --no-cache curl openssl openssl-dev
 
 # Set working directory
 WORKDIR /app
@@ -39,8 +39,8 @@ RUN pnpm --filter "@elearning/user-service" build
 # Production stage
 FROM node:18-alpine AS production
 
-# Install curl for health checks
-RUN apk add --no-cache curl
+# Install curl for health checks and OpenSSL for Prisma
+RUN apk add --no-cache curl openssl openssl-dev
 
 # Set working directory
 WORKDIR /app
