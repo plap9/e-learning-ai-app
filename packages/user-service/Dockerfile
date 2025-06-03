@@ -29,7 +29,9 @@ RUN pnpm --filter "@elearning/logger" build || echo "No build script for logger"
 RUN pnpm --filter "@elearning/config-utils" build || echo "No build script for config-utils"
 
 # Generate Prisma client
-RUN pnpm --filter "@elearning/user-service" prisma generate
+WORKDIR /app/packages/user-service
+RUN pnpm prisma generate
+WORKDIR /app
 
 # Build user-service
 RUN pnpm --filter "@elearning/user-service" build

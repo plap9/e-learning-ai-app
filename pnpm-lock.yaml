@@ -295,6 +295,12 @@ importers:
       '@types/express':
         specifier: ^4.17.21
         version: 4.17.22
+      '@types/express-rate-limit':
+        specifier: ^6.0.0
+        version: 6.0.2(express@4.21.2)
+      '@types/http-proxy-middleware':
+        specifier: ^1.0.0
+        version: 1.0.0(@types/express@4.17.22)
       '@types/jest':
         specifier: ^29.5.8
         version: 29.5.14
@@ -2420,6 +2426,10 @@ packages:
     resolution: {integrity: sha512-Fgg31wv9QbLDA0SpTOXO3MaxySc4DKGLi8sna4/Utjo4r3ZRPdCt4UQee8BWr+Q5z21yifghREPJGYaEOEIACg==}
     deprecated: This is a stub types definition. dompurify provides its own type definitions, so you do not need this installed.
 
+  '@types/express-rate-limit@6.0.2':
+    resolution: {integrity: sha512-e1xZLOOlxCDvplAGq7rDcXtbdBu2CWRsMjaIu1LVqGxWtKvwr884YE5mPs3IvHeG/OMDhf24oTaqG5T1bV3rBQ==}
+    deprecated: This is a stub types definition. express-rate-limit provides its own type definitions, so you do not need this installed.
+
   '@types/express-serve-static-core@4.19.6':
     resolution: {integrity: sha512-N4LZ2xG7DatVqhCZzOGb1Yi5lMbXSZcmdLDe9EzSndPV2HpWYWzRbaerl2n27irrm94EPpprqa8KpskPT085+A==}
 
@@ -2434,6 +2444,10 @@ packages:
 
   '@types/http-errors@2.0.4':
     resolution: {integrity: sha512-D0CFMMtydbJAegzOyHjtiKPLlvnm3iTZyZRSZoLq2mRhDdmLfIWOCYPfQJ4cu2erKghU++QvjcUjp/5h7hESpA==}
+
+  '@types/http-proxy-middleware@1.0.0':
+    resolution: {integrity: sha512-/s8lFX6rT43hSPqjjD8KNuu0SkPKY7uIdR6u9DCxVqCRhAvfKxGbVOixJsAT2mdpSnCyrGFAGoB39KFh6tmRxw==}
+    deprecated: This is a stub types definition. http-proxy-middleware provides its own type definitions, so you do not need this installed.
 
   '@types/http-proxy@1.17.16':
     resolution: {integrity: sha512-sdWoUajOB1cd0A8cRRQ1cfyWNbmFKLAqBB89Y8x5iYyG/mkJHc0YUH8pdWBy2omi9qtCpiIgGjuwO0dQST2l5w==}
@@ -10527,6 +10541,12 @@ snapshots:
     dependencies:
       dompurify: 3.2.6
 
+  '@types/express-rate-limit@6.0.2(express@4.21.2)':
+    dependencies:
+      express-rate-limit: 7.5.0(express@4.21.2)
+    transitivePeerDependencies:
+      - express
+
   '@types/express-serve-static-core@4.19.6':
     dependencies:
       '@types/node': 20.17.57
@@ -10548,6 +10568,13 @@ snapshots:
   '@types/hammerjs@2.0.46': {}
 
   '@types/http-errors@2.0.4': {}
+
+  '@types/http-proxy-middleware@1.0.0(@types/express@4.17.22)':
+    dependencies:
+      http-proxy-middleware: 2.0.9(@types/express@4.17.22)
+    transitivePeerDependencies:
+      - '@types/express'
+      - debug
 
   '@types/http-proxy@1.17.16':
     dependencies:
