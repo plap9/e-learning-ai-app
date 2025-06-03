@@ -455,15 +455,67 @@ jobs:
         run: |
           echo "🚀 Deploying to staging environment..."
           
-          # Create staging environment file
+          # Create staging environment file with all required variables
           cat << EOF > .env.staging
+          # Docker Configuration
           DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
           IMAGE_TAG=${{ github.sha }}
+          
+          # Database Configuration (REQUIRED)
           DATABASE_NAME=mydb_staging
           DATABASE_USER=lap04
-          DATABASE_PASSWORD=${{ secrets.STAGING_DB_PASSWORD }}
-          JWT_SECRET=${{ secrets.STAGING_JWT_SECRET }}
+          DATABASE_PASSWORD=${{ secrets.STAGING_DB_PASSWORD || 'lap04pass' }}
+          DATABASE_PORT=5432
+          
+          # Redis Configuration (REQUIRED)
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD || 'redis123' }}
+          REDIS_PORT=6379
+          
+          # JWT Configuration (REQUIRED)
+          JWT_SECRET=${{ secrets.STAGING_JWT_SECRET || 'staging-jwt-secret-for-development-only' }}
+          JWT_EXPIRES_IN=15m
+          JWT_REFRESH_EXPIRES_IN=30d
+          
+          # Email Configuration
+          SMTP_HOST=${{ secrets.SMTP_HOST || 'smtp.gmail.com' }}
+          SMTP_PORT=${{ secrets.SMTP_PORT || '587' }}
+          SMTP_USER=${{ secrets.SMTP_USER || '' }}
+          SMTP_PASS=${{ secrets.SMTP_PASS || '' }}
+          FROM_EMAIL=${{ secrets.FROM_EMAIL || 'noreply@staging.localhost' }}
+          FROM_NAME=E-Learning AI Platform (Staging)
+          
+          # CORS Configuration
           CORS_ORIGIN=https://staging.yourdomain.com
+          
+          # AWS Configuration
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY || '' }}
+          AWS_REGION=${{ secrets.AWS_REGION || 'us-east-1' }}
+          S3_BUCKET=${{ secrets.S3_BUCKET_STAGING || secrets.S3_BUCKET || '' }}
+          
+          # AI Services API Keys
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || '' }}
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY || '' }}
+          HF_TOKEN=${{ secrets.HF_TOKEN || '' }}
+          ELEVEN_LABS_API_KEY=${{ secrets.ELEVEN_LABS_API_KEY || '' }}
+          
+          # Google Cloud Configuration
+          GOOGLE_CLOUD_PROJECT=${{ secrets.GOOGLE_CLOUD_PROJECT || '' }}
+          
+          # Payment Gateway Configuration (Use test keys for staging)
+          STRIPE_SECRET_KEY=${{ secrets.STRIPE_TEST_SECRET_KEY || secrets.STRIPE_SECRET_KEY || '' }}
+          STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_TEST_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET || '' }}
+          STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY || '' }}
+          
+          # Service Ports
+          API_GATEWAY_PORT=3000
+          USER_SERVICE_PORT=3001
+          CONTENT_SERVICE_PORT=3002
+          PAYMENT_SERVICE_PORT=3003
+          AI_SERVICE_PORT=8000
+          AUDIO_SERVICE_PORT=8001
+          
+          # Application Environment
           NODE_ENV=staging
           EOF
           
@@ -525,25 +577,96 @@ jobs:
         run: |
           echo "🚀 Deploying to production environment..."
           
-          # Create production environment file
+          # Create production environment file with all required variables
           cat << EOF > .env.prod
+          # Docker Configuration
           DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
           IMAGE_TAG=${{ github.sha }}
+          
+          # Database Configuration (REQUIRED)
           DATABASE_NAME=mydb
           DATABASE_USER=lap04
-          DATABASE_PASSWORD=${{ secrets.PROD_DB_PASSWORD }}
-          JWT_SECRET=${{ secrets.PROD_JWT_SECRET }}
+          DATABASE_PASSWORD=${{ secrets.PROD_DB_PASSWORD || 'lap04pass' }}
+          DATABASE_PORT=5432
+          
+          # Redis Configuration (REQUIRED)
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD || 'redis123' }}
+          REDIS_PORT=6379
+          
+          # JWT Configuration (REQUIRED)
+          JWT_SECRET=${{ secrets.PROD_JWT_SECRET || 'fallback-jwt-secret-for-development-only-change-in-production' }}
           JWT_EXPIRES_IN=15m
           JWT_REFRESH_EXPIRES_IN=30d
-          SMTP_HOST=${{ secrets.SMTP_HOST }}
-          SMTP_PORT=${{ secrets.SMTP_PORT }}
-          SMTP_USER=${{ secrets.SMTP_USER }}
-          SMTP_PASS=${{ secrets.SMTP_PASS }}
-          FROM_EMAIL=${{ secrets.FROM_EMAIL }}
-          CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          
+          # Email Configuration
+          SMTP_HOST=${{ secrets.SMTP_HOST || 'smtp.gmail.com' }}
+          SMTP_PORT=${{ secrets.SMTP_PORT || '587' }}
+          SMTP_USER=${{ secrets.SMTP_USER || '' }}
+          SMTP_PASS=${{ secrets.SMTP_PASS || '' }}
+          FROM_EMAIL=${{ secrets.FROM_EMAIL || 'noreply@localhost' }}
+          FROM_NAME=E-Learning AI Platform
+          
+          # CORS Configuration
+          CORS_ORIGIN=${{ secrets.CORS_ORIGIN || 'http://localhost:3000' }}
+          
+          # AWS Configuration
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY || '' }}
+          AWS_REGION=${{ secrets.AWS_REGION || 'us-east-1' }}
+          S3_BUCKET=${{ secrets.S3_BUCKET || '' }}
+          
+          # AI Services API Keys
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || '' }}
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY || '' }}
+          HF_TOKEN=${{ secrets.HF_TOKEN || '' }}
+          ELEVEN_LABS_API_KEY=${{ secrets.ELEVEN_LABS_API_KEY || '' }}
+          
+          # Google Cloud Configuration
+          GOOGLE_CLOUD_PROJECT=${{ secrets.GOOGLE_CLOUD_PROJECT || '' }}
+          
+          # Payment Gateway Configuration
+          STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY || '' }}
+          STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET || '' }}
+          STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY || '' }}
+          
+          # MoMo (Vietnam)
+          MOMO_PARTNER_CODE=${{ secrets.MOMO_PARTNER_CODE || '' }}
+          MOMO_ACCESS_KEY=${{ secrets.MOMO_ACCESS_KEY || '' }}
+          MOMO_SECRET_KEY=${{ secrets.MOMO_SECRET_KEY || '' }}
+          
+          # ZaloPay (Vietnam)
+          ZALOPAY_APP_ID=${{ secrets.ZALOPAY_APP_ID || '' }}
+          ZALOPAY_KEY1=${{ secrets.ZALOPAY_KEY1 || '' }}
+          ZALOPAY_KEY2=${{ secrets.ZALOPAY_KEY2 || '' }}
+          
+          # Service Ports
+          API_GATEWAY_PORT=3000
+          USER_SERVICE_PORT=3001
+          CONTENT_SERVICE_PORT=3002
+          PAYMENT_SERVICE_PORT=3003
+          AI_SERVICE_PORT=8000
+          AUDIO_SERVICE_PORT=8001
+          
+          # Application Environment
           NODE_ENV=production
           EOF
+          
+          # Validate environment file
+          echo "🔍 Validating environment configuration..."
+          cat .env.prod
+          
+          echo "🔍 Checking critical variables..."
+          if ! grep -q "JWT_SECRET=" .env.prod || [ "$(grep JWT_SECRET .env.prod | cut -d'=' -f2)" = "" ]; then
+            echo "❌ JWT_SECRET is missing or empty!"
+            exit 1
+          fi
+          
+          if ! grep -q "DATABASE_PASSWORD=" .env.prod || [ "$(grep DATABASE_PASSWORD .env.prod | cut -d'=' -f2)" = "" ]; then
+            echo "❌ DATABASE_PASSWORD is missing or empty!"
+            exit 1
+          fi
+          
+          echo "✅ Environment validation passed"
           
           # Deploy using docker compose (new syntax)
           echo "🧹 Cleaning up old containers..."
@@ -552,21 +675,62 @@ jobs:
           echo "📦 Pulling latest Docker images..."
           docker compose -f docker-compose.prod.yml --env-file .env.prod pull
           
-          echo "🚀 Starting production services..."
+          echo "🚀 Starting database and redis first..."
+          docker compose -f docker-compose.prod.yml --env-file .env.prod up -d postgres redis
+          
+          echo "⏳ Waiting for database to be ready..."
+          for i in {1..30}; do
+            if docker compose -f docker-compose.prod.yml --env-file .env.prod exec postgres pg_isready -U lap04 -d mydb; then
+              echo "✅ Database is ready!"
+              break
+            elif [ $i -eq 30 ]; then
+              echo "❌ Database failed to start after 5 minutes"
+              docker compose -f docker-compose.prod.yml --env-file .env.prod logs postgres
+              exit 1
+            else
+              echo "⏳ Waiting for database... ($i/30)"
+              sleep 10
+            fi
+          done
+          
+          echo "🚀 Starting all services..."
           docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
           
           echo "⏳ Waiting for services to be healthy..."
           sleep 90
           
           echo "🔍 Health check..."
+          
+          # Check individual service health first
+          echo "📊 Container status:"
+          docker compose -f docker-compose.prod.yml --env-file .env.prod ps
+          
+          echo "🔍 Checking database connection..."
+          if ! docker compose -f docker-compose.prod.yml --env-file .env.prod exec postgres pg_isready -U lap04 -d mydb; then
+            echo "❌ Database not ready!"
+            docker compose -f docker-compose.prod.yml --env-file .env.prod logs postgres
+          fi
+          
+          echo "🔍 Checking individual services..."
+          for service in user-service content-service payment-service; do
+            echo "Checking $service..."
+            if docker compose -f docker-compose.prod.yml --env-file .env.prod ps $service | grep -q "unhealthy\|Exit"; then
+              echo "❌ $service is unhealthy, showing logs:"
+              docker compose -f docker-compose.prod.yml --env-file .env.prod logs --tail=30 $service
+            fi
+          done
+          
+          echo "🔍 API Gateway health check..."
           for i in {1..10}; do
             if curl -f http://localhost:3000/health; then
               echo "✅ Health check passed on attempt $i!"
               break
             elif [ $i -eq 10 ]; then
               echo "❌ Health check failed after 10 attempts"
-              echo "📋 Container logs:"
+              echo "📋 All container logs:"
               docker compose -f docker-compose.prod.yml --env-file .env.prod logs --tail=50
+              echo "📊 Final container status:"
+              docker compose -f docker-compose.prod.yml --env-file .env.prod ps
               exit 1
             else
               echo "⏳ Health check attempt $i failed, retrying in 10s..."

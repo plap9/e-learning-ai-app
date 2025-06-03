@@ -53,7 +53,6 @@ COPY --from=base /app/packages/user-service/dist ./dist
 COPY --from=base /app/packages/user-service/package.json ./package.json
 COPY --from=base /app/packages/user-service/prisma ./prisma
 COPY --from=base /app/node_modules ./node_modules
-COPY --from=base /app/packages/user-service/node_modules ./packages/user-service/node_modules
 
 # Expose port
 EXPOSE 3001
