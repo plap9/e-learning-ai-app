@@ -265,13 +265,15 @@ jobs:
             sleep 2
           done
           
-          # Create application user and database
-          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "
-            CREATE USER lap04 WITH PASSWORD 'lap04pass';
-            ALTER USER lap04 CREATEDB;
-            CREATE DATABASE mydb OWNER lap04;
-            GRANT ALL PRIVILEGES ON DATABASE mydb TO lap04;
-          "
+          # Create application user first (ignore if exists)
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE USER lap04 WITH PASSWORD 'lap04pass';" || echo "User lap04 already exists"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "ALTER USER lap04 CREATEDB;" || echo "User lap04 already has CREATEDB"
+          
+          # Create database (must be outside transaction block)
+          PGPASSWORD=postgres createdb -h localhost -U postgres -O lap04 mydb || echo "Database mydb already exists"
+          
+          # Grant privileges
+          PGPASSWORD=postgres psql -h localhost -U postgres -d mydb -c "GRANT ALL PRIVILEGES ON DATABASE mydb TO lap04;" || echo "Privileges already granted"
 
       - name: Generate Prisma Client for tests
         run: |

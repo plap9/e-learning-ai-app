@@ -9,6 +9,7 @@ services:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres123
+      POSTGRES_INITDB_ARGS: "--auth-host=md5"
     ports:
       - "5432:5432"
     volumes:
@@ -16,6 +17,11 @@ services:
       - ./init-scripts:/docker-entrypoint-initdb.d
     networks:
       - elearning-network
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.track=all
+      -c max_connections=200
 
   # Redis Cache
   redis:
