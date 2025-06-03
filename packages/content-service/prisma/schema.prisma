@@ -1,0 +1,203 @@
+// Content Service Prisma Schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ================================
+// CONTENT MANAGEMENT
+// ================================
+
+model Course {
+  id               String           @id @default(cuid())
+  title            String
+  description      String
+  shortDescription String?
+  thumbnail        String?
+  level            ProficiencyLevel
+  category         CourseCategory
+  tags             String[]
+  language         String           @default("en")
+  estimatedHours   Float?
+  price            Decimal?         @db.Decimal(10, 2)
+  isPublished      Boolean          @default(false)
+  isFree           Boolean          @default(false)
+  order            Int?
+
+  // SEO
+  slug            String  @unique
+  metaTitle       String?
+  metaDescription String?
+
+  // AI Generation
+  isAiGenerated Boolean @default(false)
+  aiPrompt      String?
+
+  // Stats for optimization
+  totalEnrollments Int @default(0)
+  averageRating    Float?
+  
+  // Soft Delete
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  lessons       Lesson[]
+  prerequisites CoursePrerequisite[] @relation("CoursePrerequisites")
+  dependents    CoursePrerequisite[] @relation("DependentCourses")
+
+  @@index([level])
+  @@index([category])
+  @@index([isPublished])
+  @@index([isFree])
+  @@index([language])
+  @@index([slug])
+  @@index([deletedAt])
+  @@map("courses")
+}
+
+model CoursePrerequisite {
+  id           String @id @default(cuid())
+  courseId     String
+  prerequisiteId String
+  course       Course @relation("CoursePrerequisites", fields: [courseId], references: [id], onDelete: Cascade)
+  prerequisite Course @relation("DependentCourses", fields: [prerequisiteId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, prerequisiteId])
+  @@index([courseId])
+  @@index([prerequisiteId])
+  @@map("course_prerequisites")
+}
+
+model Lesson {
+  id          String      @id @default(cuid())
+  courseId    String
+  course      Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  content     String
+  contentType ContentType @default(TEXT)
+  videoUrl    String?
+  audioUrl    String?
+  duration    Int?        // in seconds
+  order       Int
+  isPublished Boolean     @default(false)
+
+  // AI Generation
+  isAiGenerated Boolean @default(false)
+  aiPrompt      String?
+
+  // Soft Delete
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  exercises Exercise[]
+
+  @@index([courseId])
+  @@index([order])
+  @@index([isPublished])
+  @@index([deletedAt])
+  @@map("lessons")
+}
+
+model Exercise {
+  id           String         @id @default(cuid())
+  lessonId     String
+  lesson       Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  title        String
+  description  String?
+  type         ExerciseType
+  difficulty   DifficultyLevel @default(BEGINNER)
+  question     String
+  options      String[]       // For multiple choice, fill-in-the-blank options
+  correctAnswer String
+  explanation  String?
+  hints        String[]
+  order        Int
+  points       Int            @default(10)
+  timeLimit    Int?           // in seconds
+
+  // AI Generation
+  isAiGenerated Boolean @default(false)
+  aiPrompt      String?
+
+  // Soft Delete
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([lessonId])
+  @@index([type])
+  @@index([difficulty])
+  @@index([order])
+  @@index([deletedAt])
+  @@map("exercises")
+}
+
+// ================================
+// ENUMS
+// ================================
+
+enum ProficiencyLevel {
+  BEGINNER
+  ELEMENTARY
+  INTERMEDIATE
+  UPPER_INTERMEDIATE
+  ADVANCED
+  PROFICIENT
+}
+
+enum CourseCategory {
+  GRAMMAR
+  VOCABULARY
+  LISTENING
+  SPEAKING
+  READING
+  WRITING
+  PRONUNCIATION
+  CONVERSATION
+  BUSINESS_ENGLISH
+  EXAM_PREPARATION
+  GENERAL_ENGLISH
+  SPECIALIZED
+}
+
+enum ContentType {
+  TEXT
+  VIDEO
+  AUDIO
+  INTERACTIVE
+  QUIZ
+}
+
+enum DifficultyLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum ExerciseType {
+  MULTIPLE_CHOICE
+  FILL_IN_THE_BLANK
+  TRUE_FALSE
+  MATCHING
+  DRAG_AND_DROP
+  SPEAKING_PRACTICE
+  LISTENING_COMPREHENSION
+  READING_COMPREHENSION
+  WRITING_PRACTICE
+  GRAMMAR_CHECK
+  VOCABULARY_QUIZ
+  PRONUNCIATION_CHECK
+  CONVERSATION_SIMULATION
+} 

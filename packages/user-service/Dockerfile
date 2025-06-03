@@ -28,12 +28,10 @@ RUN pnpm --filter "@elearning/auth-utils" build || echo "No build script for aut
 RUN pnpm --filter "@elearning/logger" build || echo "No build script for logger"
 RUN pnpm --filter "@elearning/config-utils" build || echo "No build script for config-utils"
 
-# Generate Prisma client
+# Generate Prisma client and build user-service
 WORKDIR /app/packages/user-service
 RUN pnpm prisma generate
 WORKDIR /app
-
-# Build user-service
 RUN pnpm --filter "@elearning/user-service" build
 
 # Production stage
@@ -54,12 +52,15 @@ COPY --from=base /app/packages/user-service/package.json ./package.json
 COPY --from=base /app/packages/user-service/prisma ./prisma
 COPY --from=base /app/node_modules ./node_modules
 
+# Set working directory back to /app for runtime
+WORKDIR /app
+
 # Expose port
 EXPOSE 3001
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:3001/health || exit 1
 
-# Start the application
-CMD ["node", "dist/index.js"] 
+# Start the application with database migration
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"] 
