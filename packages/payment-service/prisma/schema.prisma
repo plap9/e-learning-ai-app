@@ -1,0 +1,245 @@
+// Payment Service Prisma Schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ================================
+// PAYMENT MANAGEMENT
+// ================================
+
+model Payment {
+  id            String           @id @default(cuid())
+  userId        String
+  amount        Decimal          @db.Decimal(10, 2)
+  currency      String           @default("USD")
+  status        PaymentStatus    @default(PENDING)
+  provider      PaymentProvider
+  providerTxId  String?          // Transaction ID from payment provider
+  description   String?
+  metadata      Json?            // Additional payment data
+
+  // Subscription relation
+  subscriptionId String?
+  subscription   Subscription?   @relation(fields: [subscriptionId], references: [id])
+
+  // Course purchase relation  
+  courseId      String?
+  courseName    String?
+  coursePrice   Decimal?         @db.Decimal(10, 2)
+
+  // Payment method details
+  paymentMethod String?          // card, bank_transfer, momo, zalopay, etc.
+  last4Digits   String?          // Last 4 digits of card/account
+  
+  // Timestamps
+  paidAt        DateTime?
+  refundedAt    DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([provider])
+  @@index([createdAt])
+  @@map("payments")
+}
+
+model Subscription {
+  id              String              @id @default(cuid())
+  userId          String
+  plan            SubscriptionPlan
+  status          SubscriptionStatus  @default(ACTIVE)
+  
+  // Pricing
+  monthlyPrice    Decimal             @db.Decimal(10, 2)
+  yearlyPrice     Decimal?            @db.Decimal(10, 2)
+  currency        String              @default("USD")
+  
+  // Billing
+  billingCycle    BillingCycle        @default(MONTHLY)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  nextBillingDate    DateTime?
+  
+  // Provider details
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  stripePriceId        String?
+  
+  // Cancellation
+  cancelAt         DateTime?
+  canceledAt       DateTime?
+  cancelReason     String?
+  
+  // Trial
+  trialStart       DateTime?
+  trialEnd         DateTime?
+  
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  // Relationships
+  payments         Payment[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([plan])
+  @@index([currentPeriodEnd])
+  @@map("subscriptions")
+}
+
+model PaymentMethod {
+  id            String              @id @default(cuid())
+  userId        String
+  type          PaymentMethodType
+  provider      PaymentProvider
+  
+  // Card details (encrypted/tokenized)
+  last4Digits   String?
+  cardBrand     String?             // visa, mastercard, etc.
+  expiryMonth   Int?
+  expiryYear    Int?
+  
+  // Provider tokens
+  stripePaymentMethodId String?
+  momoPaymentMethodId   String?
+  zalopayPaymentMethodId String?
+  
+  // Status
+  isDefault     Boolean             @default(false)
+  isActive      Boolean             @default(true)
+  
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([userId])
+  @@index([type])
+  @@index([isDefault])
+  @@map("payment_methods")
+}
+
+model Invoice {
+  id              String        @id @default(cuid())
+  userId          String
+  paymentId       String?
+  subscriptionId  String?
+  
+  // Invoice details
+  invoiceNumber   String        @unique
+  amount          Decimal       @db.Decimal(10, 2)
+  currency        String        @default("USD")
+  status          InvoiceStatus @default(DRAFT)
+  
+  // Dates
+  issuedAt        DateTime
+  dueAt           DateTime
+  paidAt          DateTime?
+  
+  // Items
+  items           Json          // Line items
+  
+  // Tax and discount
+  subtotal        Decimal       @db.Decimal(10, 2)
+  taxAmount       Decimal?      @db.Decimal(10, 2)
+  discountAmount  Decimal?      @db.Decimal(10, 2)
+  totalAmount     Decimal       @db.Decimal(10, 2)
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([invoiceNumber])
+  @@map("invoices")
+}
+
+model Refund {
+  id            String       @id @default(cuid())
+  paymentId     String
+  userId        String
+  amount        Decimal      @db.Decimal(10, 2)
+  currency      String       @default("USD")
+  reason        String?
+  status        RefundStatus @default(PENDING)
+  
+  // Provider details
+  providerRefundId String?
+  
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([paymentId])
+  @@index([userId])
+  @@index([status])
+  @@map("refunds")
+}
+
+// ================================
+// ENUMS
+// ================================
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentProvider {
+  STRIPE
+  MOMO
+  ZALOPAY
+  BANK_TRANSFER
+  CASH
+}
+
+enum PaymentMethodType {
+  CARD
+  BANK_ACCOUNT
+  E_WALLET
+  CRYPTO
+}
+
+enum SubscriptionPlan {
+  FREE
+  BASIC
+  PREMIUM
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  CANCELED
+  PAST_DUE
+  TRIALING
+  UNPAID
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum InvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  VOID
+  UNCOLLECTIBLE
+}
+
+enum RefundStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELED
+} 

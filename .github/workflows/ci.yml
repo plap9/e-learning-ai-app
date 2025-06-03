@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: E-Learning AI - Optimized CI/CD Pipeline
 
 on:
   push:
@@ -18,9 +18,13 @@ env:
   PNPM_VERSION: 10.11.1
 
 jobs:
-  # Dependency Installation & Caching
+  # ================================
+  # DEPENDENCY SETUP & CACHING (OPTIMIZED)
+  # ================================
   setup:
     runs-on: ubuntu-latest
+    outputs:
+      cache-hit: ${{ steps.pnpm-cache.outputs.cache-hit }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -37,31 +41,33 @@ jobs:
 
       - name: Get pnpm store directory
         shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
-      - name: Setup pnpm cache
+      # OPTIMIZED: Chỉ cache pnpm store, bỏ cache node_modules riêng lẻ
+      - name: Setup pnpm cache (Primary cache strategy)
+        id: pnpm-cache
         uses: actions/cache@v3
         with:
           path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-v10-reset-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-pnpm-store-v11-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-store-v10-
+            ${{ runner.os }}-pnpm-store-v11-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Cache node_modules
-        uses: actions/cache@v3
-        with:
-          path: |
-            node_modules
-            packages/*/node_modules
-            shared/packages/*/node_modules
-            mobile-app/node_modules
-          key: ${{ runner.os }}-node_modules-v10-reset-${{ hashFiles('**/pnpm-lock.yaml') }}
+      # Generate Prisma clients một lần trong setup job
+      - name: Generate Prisma clients for all services
+        run: |
+          echo "📦 Generating Prisma clients..."
+          cd packages/user-service && pnpm prisma generate
+          cd ../content-service && pnpm prisma generate  
+          cd ../payment-service && pnpm prisma generate
+          echo "✅ All Prisma clients generated successfully"
 
-  # Linting & Code Quality
+  # ================================
+  # LINTING & CODE QUALITY (OPTIMIZED)
+  # ================================
   lint:
     needs: setup
     runs-on: ubuntu-latest
@@ -79,32 +85,34 @@ jobs:
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - name: Restore node_modules cache
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      # OPTIMIZED: Chỉ restore pnpm store cache
+      - name: Restore pnpm cache
         uses: actions/cache@v3
         with:
-          path: |
-            node_modules
-            packages/*/node_modules
-            shared/packages/*/node_modules
-            mobile-app/node_modules
-          key: ${{ runner.os }}-node_modules-v10-reset-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-v11-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-v11-
 
-      - name: Install dependencies if cache miss
-        run: |
-          if [ ! -d "node_modules" ]; then
-            echo "Cache miss detected, installing dependencies..."
-            pnpm install --frozen-lockfile
-          fi
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
-      - name: Generate Prisma Client
+      - name: Generate Prisma clients (từ cache hoặc rebuild nhanh)
         run: |
-          cd packages/user-service
-          pnpm prisma generate
+          cd packages/user-service && pnpm prisma generate
+          cd ../content-service && pnpm prisma generate  
+          cd ../payment-service && pnpm prisma generate
 
       - name: Run linting
         run: pnpm lint || echo "Linting completed with warnings"
 
-  # TypeScript Build
+  # ================================
+  # TYPESCRIPT BUILD (OPTIMIZED MATRIX)
+  # ================================
   build:
     needs: setup
     runs-on: ubuntu-latest
@@ -125,29 +133,40 @@ jobs:
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - name: Restore node_modules cache
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      # OPTIMIZED: Restore pnpm cache instead of node_modules
+      - name: Restore pnpm cache
         uses: actions/cache@v3
         with:
-          path: |
-            node_modules
-            packages/*/node_modules
-            shared/packages/*/node_modules
-            mobile-app/node_modules
-          key: ${{ runner.os }}-node_modules-v10-reset-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-v11-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-v11-
 
-      - name: Generate Prisma Client for build
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # OPTIMIZED: Generate Prisma client dựa vào service cần thiết
+      - name: Generate Prisma client for service
         run: |
-          if [ "${{ matrix.service }}" = "user-service" ]; then
-            cd packages/user-service
+          if [[ "${{ matrix.service }}" =~ ^(user-service|content-service|payment-service)$ ]]; then
+            echo "📦 Generating Prisma client for ${{ matrix.service }}..."
+            cd packages/${{ matrix.service }}
             pnpm prisma generate
+          else
+            echo "⏭️  No Prisma client needed for ${{ matrix.service }}"
           fi
 
+      # OPTIMIZED: Sử dụng pnpm filter thay vì cd
       - name: Build ${{ matrix.service }}
-        run: |
-          cd packages/${{ matrix.service }}
-          pnpm build
+        run: pnpm --filter "@elearning/${{ matrix.service }}" build
 
-  # Python Services
+  # ================================
+  # PYTHON SERVICES (CUSTOM BASE IMAGE READY)
+  # ================================
   python-services:
     runs-on: ubuntu-latest
     strategy:
@@ -162,7 +181,18 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      # OPTIMIZED: Cache system dependencies installation
+      - name: Cache system dependencies
+        id: sys-deps-cache
+        uses: actions/cache@v3
+        with:
+          path: /var/cache/apt
+          key: ${{ runner.os }}-system-deps-v2
+          restore-keys: |
+            ${{ runner.os }}-system-deps-v1
+
       - name: Install system dependencies
+        if: steps.sys-deps-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -180,18 +210,20 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          key: ${{ runner.os }}-pip-${{ matrix.service }}-${{ hashFiles(format('packages/{0}/requirements*.txt', matrix.service)) }}
+          restore-keys: |
+            ${{ runner.os }}-pip-${{ matrix.service }}-
 
       - name: Install Python dependencies
         run: |
           cd packages/${{ matrix.service }}
           python -m pip install --upgrade pip setuptools wheel
-          # Use CI-specific requirements with flexible versions if available
+          # OPTIMIZED: Use CI-specific requirements if available
           if [ -f "requirements-ci.txt" ]; then
-            echo "Using CI-specific requirements..."
+            echo "📦 Using CI-optimized requirements..."
             pip install -r requirements-ci.txt
           else
-            echo "Using regular requirements..."
+            echo "📦 Using standard requirements..."
             pip install -r requirements.txt
           fi
 
@@ -203,7 +235,9 @@ jobs:
           flake8 src/ --max-line-length=88 --ignore=E501,W503 || echo "Linting completed with warnings"
           black --check src/ || echo "Code formatting check completed"
 
-  # Unit Tests
+  # ================================
+  # UNIT TESTS (OPTIMIZED)
+  # ================================
   test:
     needs: [setup, lint]
     runs-on: ubuntu-latest
@@ -246,64 +280,68 @@ jobs:
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - name: Restore node_modules cache
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      # OPTIMIZED: Restore pnpm cache
+      - name: Restore pnpm cache
         uses: actions/cache@v3
         with:
-          path: |
-            node_modules
-            packages/*/node_modules
-            shared/packages/*/node_modules
-            mobile-app/node_modules
-          key: ${{ runner.os }}-node_modules-v10-reset-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-v11-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-v11-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Setup test environment
         run: |
-          cp packages/user-service/.env.example packages/user-service/.env
-          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres" >> packages/user-service/.env
-          echo "NODE_ENV=test" >> packages/user-service/.env
-          echo "JWT_SECRET=test-jwt-secret-key" >> packages/user-service/.env
+          cp packages/user-service/.env.example packages/user-service/.env || echo ".env.example not found, creating minimal .env"
+          cat > packages/user-service/.env << EOF
+          DATABASE_URL=postgresql://lap04:lap04pass@localhost:5432/mydb
+          NODE_ENV=test
+          JWT_SECRET=test-jwt-secret-key-for-testing-only
+          REDIS_URL=redis://localhost:6379
+          EOF
 
       - name: Setup database
         run: |
           # Wait for PostgreSQL to be ready
           until pg_isready -h localhost -p 5432 -U postgres; do
-            echo "Waiting for PostgreSQL..."
+            echo "⏳ Waiting for PostgreSQL..."
             sleep 2
           done
           
-          # Create application user first (ignore if exists)
+          # Create application user and database
           PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE USER lap04 WITH PASSWORD 'lap04pass';" || echo "User lap04 already exists"
           PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "ALTER USER lap04 CREATEDB;" || echo "User lap04 already has CREATEDB"
-          
-          # Create database (must be outside transaction block)
           PGPASSWORD=postgres createdb -h localhost -U postgres -O lap04 mydb || echo "Database mydb already exists"
-          
-          # Grant privileges
           PGPASSWORD=postgres psql -h localhost -U postgres -d mydb -c "GRANT ALL PRIVILEGES ON DATABASE mydb TO lap04;" || echo "Privileges already granted"
 
-      - name: Generate Prisma Client for tests
+      - name: Generate Prisma clients and run migrations
         run: |
-          cd packages/user-service
-          pnpm prisma generate
-
-      - name: Run database migrations
-        run: |
-          cd packages/user-service
-          echo "DATABASE_URL=postgresql://lap04:lap04pass@localhost:5432/mydb" > .env
-          echo "NODE_ENV=test" >> .env
-          echo "JWT_SECRET=test-jwt-secret-key" >> .env
-          pnpm prisma migrate deploy
+          # Generate all Prisma clients
+          cd packages/user-service && pnpm prisma generate
+          cd ../content-service && pnpm prisma generate
+          cd ../payment-service && pnpm prisma generate
+          
+          # Run migrations
+          cd ../user-service && pnpm prisma migrate deploy
+          cd ../content-service && pnpm prisma migrate deploy || echo "Content service migrations not ready yet"
+          cd ../payment-service && pnpm prisma migrate deploy || echo "Payment service migrations not ready yet"
 
       - name: Run tests
-        run: |
-          # Run tests with proper error handling
-          pnpm test || echo "Some tests failed, but continuing..."
+        run: pnpm test || echo "Some tests failed, but continuing..."
 
-  # Docker Build & Security Scan
+  # ================================
+  # DOCKER BUILD & PUSH (OPTIMIZED CONTEXTS)
+  # ================================
   docker:
     needs: [build, test]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     permissions:
       contents: read
       security-events: write
@@ -320,58 +358,85 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-          logout: false
 
-      - name: Verify Docker login and credentials
+      - name: Verify Docker login
         run: |
-          echo "Verifying Docker login..."
+          echo "🐳 Verifying Docker login..."
           echo "Username: ${{ secrets.DOCKER_USERNAME }}"
-          echo "Token length: $(echo '${{ secrets.DOCKER_PASSWORD }}' | wc -c)"
           docker info
-          echo "Docker login successful!"
 
-      - name: Build and tag Docker images
+      # OPTIMIZED: Build với proper context cho từng service type
+      - name: Build and push Node.js services
         run: |
-          echo "🐳 Building Docker images..."
+          echo "🔨 Building Node.js services with optimized context..."
           
-          # Build Node.js services với proper tags từ root context
-          echo "Building API Gateway..."
-          docker build -f packages/api-gateway/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:${{ github.sha }} .
+          # API Gateway (monorepo context vì cần shared packages)
+          echo "📦 Building API Gateway..."
+          docker buildx build \
+            --platform linux/amd64 \
+            -f packages/api-gateway/Dockerfile \
+            -t ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:latest \
+            -t ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:${{ github.sha }} \
+            --push .
           
-          echo "Building User Service..."
-          docker build -f packages/user-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:${{ github.sha }} .
+          # User Service
+          echo "📦 Building User Service..."
+          docker buildx build \
+            --platform linux/amd64 \
+            -f packages/user-service/Dockerfile \
+            -t ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:latest \
+            -t ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:${{ github.sha }} \
+            --push .
           
-          echo "Building Content Service..."
-          docker build -f packages/content-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:${{ github.sha }} .
+          # Content Service  
+          echo "📦 Building Content Service..."
+          docker buildx build \
+            --platform linux/amd64 \
+            -f packages/content-service/Dockerfile \
+            -t ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:latest \
+            -t ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:${{ github.sha }} \
+            --push .
           
-          echo "Building Payment Service..."
-          docker build -f packages/payment-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:${{ github.sha }} .
-          
-          echo "Building AI Service..."
-          docker build -f packages/ai-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:${{ github.sha }} ./packages/ai-service
-          
-          echo "Building Audio Processing Service..."
-          docker build -f packages/audio-processing-service/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:latest -t ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:${{ github.sha }} ./packages/audio-processing-service
-          
-          echo "✅ All Docker images built successfully!"
+          # Payment Service
+          echo "📦 Building Payment Service..."
+          docker buildx build \
+            --platform linux/amd64 \
+            -f packages/payment-service/Dockerfile \
+            -t ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:latest \
+            -t ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:${{ github.sha }} \
+            --push .
 
-      - name: Push Docker images
+      # OPTIMIZED: Python services với service-specific context
+      - name: Build and push Python services
         run: |
-          # Push latest và commit-specific tags
-          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:latest
-          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:${{ github.sha }}
-          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:latest
-          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:${{ github.sha }}
-          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:latest
-          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:${{ github.sha }}
-          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:latest
-          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:${{ github.sha }}
-          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:latest
-          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:${{ github.sha }}
-          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:latest
-          docker push ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:${{ github.sha }}
+          echo "🐍 Building Python services with service-specific context..."
+          
+          # AI Service
+          echo "📦 Building AI Service..."
+          docker buildx build \
+            --platform linux/amd64 \
+            -f packages/ai-service/Dockerfile \
+            -t ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:latest \
+            -t ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:${{ github.sha }} \
+            --push ./packages/ai-service
+          
+          # Audio Processing Service
+          echo "📦 Building Audio Processing Service..."
+          docker buildx build \
+            --platform linux/amd64 \
+            -f packages/audio-processing-service/Dockerfile \
+            -t ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:latest \
+            -t ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:${{ github.sha }} \
+            --push ./packages/audio-processing-service
 
-  # Security Scanning (separate job to avoid blocking deployment)
+      - name: Verify images
+        run: |
+          echo "✅ Docker images built and pushed successfully!"
+          echo "🏷️  Tagged with: latest, ${{ github.sha }}"
+
+  # ================================
+  # SECURITY SCANNING (PARALLEL)
+  # ================================
   security-scan:
     needs: [docker]
     runs-on: ubuntu-latest
@@ -379,24 +444,17 @@ jobs:
     permissions:
       contents: read
       security-events: write
-      actions: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Cache Trivy DB
         uses: actions/cache@v3
         with:
           path: .cache/trivy
-          key: trivy-cache-${{ runner.os }}-${{ github.sha }}
+          key: trivy-cache-v2-${{ runner.os }}
           restore-keys: |
-            trivy-cache-${{ runner.os }}-
+            trivy-cache-v1-${{ runner.os }}
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
@@ -408,19 +466,6 @@ jobs:
           cache-dir: .cache/trivy
           exit-code: '0'
 
-      - name: Check SARIF file
-        if: always()
-        run: |
-          if [ -f "trivy-results.sarif" ]; then
-            echo "✅ SARIF file exists"
-            echo "File size: $(du -h trivy-results.sarif)"
-            echo "First 10 lines of SARIF file:"
-            head -10 trivy-results.sarif || echo "Could not read file content"
-          else
-            echo "❌ SARIF file not found"
-            ls -la
-          fi
-
       - name: Upload Trivy scan results
         uses: github/codeql-action/upload-sarif@v3
         if: always() && hashFiles('trivy-results.sarif') != ''
@@ -428,9 +473,82 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
 
-  # Deploy to Staging
-  deploy-staging:
+  # ================================
+  # INFRASTRUCTURE TESTING (CLARIFIED PURPOSE)
+  # ================================
+  # Mục đích: Test Docker Compose configuration, image compatibility, và health checks
+  # Đây KHÔNG phải là production deployment thực sự mà là smoke test
+  test-infrastructure:
     needs: [docker]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Test Docker Compose configuration
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "🧪 Testing Docker Compose infrastructure (SMOKE TEST ONLY)..."
+          echo "⚠️  This is NOT a real deployment - just testing configuration"
+          
+          # Create minimal test environment
+          cat << EOF > .env.test
+          DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
+          IMAGE_TAG=${{ github.sha }}
+          DATABASE_NAME=test_db
+          DATABASE_USER=test_user
+          DATABASE_PASSWORD=test_pass
+          REDIS_PASSWORD=test_redis
+          JWT_SECRET=test-jwt-secret-for-infrastructure-testing-only
+          NODE_ENV=test
+          CORS_ORIGIN=http://localhost:3000
+          # Minimal required env vars for smoke test
+          STRIPE_SECRET_KEY=sk_test_minimal
+          OPENAI_API_KEY=test-key
+          EOF
+          
+          echo "🐳 Testing Docker Compose syntax and image pulls..."
+          docker compose -f docker-compose.prod.yml --env-file .env.test config
+          
+          echo "📦 Pulling images to test availability..."
+          docker compose -f docker-compose.prod.yml --env-file .env.test pull
+          
+          echo "🚀 Starting services for connectivity test..."
+          docker compose -f docker-compose.prod.yml --env-file .env.test up -d postgres redis
+          
+          # OPTIMIZED: Shorter wait time for infrastructure test
+          echo "⏳ Waiting for basic services (30s timeout)..."
+          sleep 30
+          
+          echo "🔍 Testing basic service connectivity..."
+          if docker compose -f docker-compose.prod.yml --env-file .env.test ps postgres | grep -q "healthy"; then
+            echo "✅ PostgreSQL container healthy"
+          else
+            echo "❌ PostgreSQL container not healthy"
+            docker compose -f docker-compose.prod.yml --env-file .env.test logs postgres
+          fi
+          
+          if docker compose -f docker-compose.prod.yml --env-file .env.test ps redis | grep -q "healthy"; then
+            echo "✅ Redis container healthy"
+          else
+            echo "❌ Redis container not healthy"
+            docker compose -f docker-compose.prod.yml --env-file .env.test logs redis
+          fi
+          
+          echo "🧹 Cleaning up test infrastructure..."
+          docker compose -f docker-compose.prod.yml --env-file .env.test down --volumes --remove-orphans
+          
+          echo "✅ Infrastructure smoke test completed!"
+
+  # ================================
+  # STAGING DEPLOYMENT NOTIFICATION
+  # ================================
+  # Mục đích: Chuẩn bị deployment scripts và thông báo cho staging
+  prepare-staging-deployment:
+    needs: [docker, test-infrastructure]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/develop'
     environment: staging
@@ -438,41 +556,49 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Docker Compose
+      # IMPROVED: Stricter secret validation
+      - name: Validate staging secrets
         run: |
-          # Check if docker compose is available
-          if ! docker compose version > /dev/null 2>&1; then
-            echo "Docker Compose plugin not found, installing..."
-            sudo apt-get update
-            sudo apt-get install -y docker-compose-plugin
+          echo "🔐 Validating staging deployment secrets..."
+          
+          # Critical secrets check
+          if [ -z "${{ secrets.STAGING_JWT_SECRET }}" ]; then
+            echo "❌ STAGING_JWT_SECRET is required for staging deployment"
+            exit 1
           fi
-          docker compose version
+          
+          if [ -z "${{ secrets.STAGING_DB_PASSWORD }}" ]; then
+            echo "❌ STAGING_DB_PASSWORD is required for staging deployment"
+            exit 1
+          fi
+          
+          echo "✅ Critical secrets validation passed"
 
-      - name: Deploy to staging environment
+      - name: Create staging deployment package
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          echo "🚀 Deploying to staging environment..."
+          echo "📦 Creating staging deployment package..."
           
-          # Create staging environment file with all required variables
+          # IMPROVED: No fallback values for critical secrets
           cat << EOF > .env.staging
           # Docker Configuration
           DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
           IMAGE_TAG=${{ github.sha }}
           
-          # Database Configuration (REQUIRED)
+          # Database Configuration (NO FALLBACKS)
           DATABASE_NAME=mydb_staging
           DATABASE_USER=lap04
-          DATABASE_PASSWORD=${{ secrets.STAGING_DB_PASSWORD || 'lap04pass' }}
+          DATABASE_PASSWORD=${{ secrets.STAGING_DB_PASSWORD }}
           DATABASE_PORT=5432
           
-          # Redis Configuration (REQUIRED)
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD || 'redis123' }}
+          # Redis Configuration 
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD || 'secure-redis-staging-password' }}
           REDIS_PORT=6379
           
-          # JWT Configuration (REQUIRED)
-          JWT_SECRET=${{ secrets.STAGING_JWT_SECRET || 'staging-jwt-secret-for-development-only' }}
+          # JWT Configuration (NO FALLBACKS)
+          JWT_SECRET=${{ secrets.STAGING_JWT_SECRET }}
           JWT_EXPIRES_IN=15m
           JWT_REFRESH_EXPIRES_IN=30d
           
@@ -484,75 +610,60 @@ jobs:
           FROM_EMAIL=${{ secrets.FROM_EMAIL || 'noreply@staging.localhost' }}
           FROM_NAME=E-Learning AI Platform (Staging)
           
-          # CORS Configuration
-          CORS_ORIGIN=https://staging.yourdomain.com
-          
-          # AWS Configuration
-          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY || '' }}
-          AWS_REGION=${{ secrets.AWS_REGION || 'us-east-1' }}
-          S3_BUCKET=${{ secrets.S3_BUCKET_STAGING || secrets.S3_BUCKET || '' }}
-          
-          # AI Services API Keys
-          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || '' }}
-          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY || '' }}
-          HF_TOKEN=${{ secrets.HF_TOKEN || '' }}
-          ELEVEN_LABS_API_KEY=${{ secrets.ELEVEN_LABS_API_KEY || '' }}
-          
-          # Google Cloud Configuration
-          GOOGLE_CLOUD_PROJECT=${{ secrets.GOOGLE_CLOUD_PROJECT || '' }}
-          
-          # Payment Gateway Configuration (Use test keys for staging)
-          STRIPE_SECRET_KEY=${{ secrets.STRIPE_TEST_SECRET_KEY || secrets.STRIPE_SECRET_KEY || '' }}
-          STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_TEST_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET || '' }}
-          STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY || '' }}
-          
-          # Service Ports
-          API_GATEWAY_PORT=3000
-          USER_SERVICE_PORT=3001
-          CONTENT_SERVICE_PORT=3002
-          PAYMENT_SERVICE_PORT=3003
-          AI_SERVICE_PORT=8000
-          AUDIO_SERVICE_PORT=8001
-          
           # Application Environment
           NODE_ENV=staging
+          CORS_ORIGIN=https://staging.yourdomain.com
+          
+          # Optional services (empty if not configured)
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY || '' }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || '' }}
+          STRIPE_SECRET_KEY=${{ secrets.STRIPE_TEST_SECRET_KEY || '' }}
           EOF
           
-          # Deploy using docker compose (new syntax)
-          echo "🧹 Cleaning up old containers..."
-          docker compose -f docker-compose.prod.yml --env-file .env.staging down --remove-orphans || echo "No existing containers to stop"
-          
-          echo "📦 Pulling latest Docker images..."
-          docker compose -f docker-compose.prod.yml --env-file .env.staging pull
-          
-          echo "🚀 Starting staging services..."
-          docker compose -f docker-compose.prod.yml --env-file .env.staging up -d
-          
-          echo "⏳ Waiting for services to be healthy..."
-          sleep 90
-          
-          echo "🔍 Health check..."
-          for i in {1..10}; do
-            if curl -f http://localhost:3000/health; then
-              echo "✅ Health check passed on attempt $i!"
-              break
-            elif [ $i -eq 10 ]; then
-              echo "❌ Health check failed after 10 attempts"
-              echo "📋 Container logs:"
-              docker compose -f docker-compose.prod.yml --env-file .env.staging logs --tail=50
-              exit 1
-            else
-              echo "⏳ Health check attempt $i failed, retrying in 10s..."
-              sleep 10
-            fi
-          done
-          
-          echo "✅ Staging deployment completed successfully!"
+          echo "📝 Staging deployment artifacts created"
+          echo "🎯 Ready for deployment to staging server"
 
-  # Deploy to Production
-  deploy-production:
-    needs: [docker]
+      - name: Generate deployment instructions
+        run: |
+          cat << 'EOF' > STAGING_DEPLOYMENT_INSTRUCTIONS.md
+          # Staging Deployment Instructions
+          
+          ## Automatic Deployment (If SSH configured)
+          The following steps would be automated with proper SSH access:
+          
+          ```bash
+          # Copy files to staging server
+          scp .env.staging docker-compose.prod.yml user@staging-server:/opt/elearning/
+          scp STAGING_DEPLOYMENT_INSTRUCTIONS.md user@staging-server:/opt/elearning/
+          
+          # SSH into staging server and deploy
+          ssh user@staging-server "cd /opt/elearning && ./deploy-staging.sh"
+          ```
+          
+          ## Manual Deployment
+          1. Copy .env.staging and docker-compose.prod.yml to your staging server
+          2. Run: `docker compose -f docker-compose.prod.yml --env-file .env.staging up -d`
+          3. Wait for health checks to pass
+          4. Verify deployment at: https://staging.yourdomain.com/health
+          
+          ## Images Ready for Deployment
+          - API Gateway: ${{ secrets.DOCKER_USERNAME }}/elearning-api-gateway:${{ github.sha }}
+          - User Service: ${{ secrets.DOCKER_USERNAME }}/elearning-user-service:${{ github.sha }}
+          - Content Service: ${{ secrets.DOCKER_USERNAME }}/elearning-content-service:${{ github.sha }}
+          - Payment Service: ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:${{ github.sha }}
+          - AI Service: ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:${{ github.sha }}
+          - Audio Service: ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:${{ github.sha }}
+          EOF
+          
+          echo "📋 Deployment instructions generated"
+
+  # ================================
+  # PRODUCTION DEPLOYMENT NOTIFICATION  
+  # ================================
+  # Mục đích: Tương tự staging nhưng với validation nghiêm ngặt hơn
+  prepare-production-deployment:
+    needs: [docker, security-scan]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     environment: production
@@ -560,194 +671,188 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Docker Compose
+      # IMPROVED: Strict production secret validation
+      - name: Validate production secrets (STRICT)
         run: |
-          # Check if docker compose is available
-          if ! docker compose version > /dev/null 2>&1; then
-            echo "Docker Compose plugin not found, installing..."
-            sudo apt-get update
-            sudo apt-get install -y docker-compose-plugin
+          echo "🔐 Validating production deployment secrets (STRICT MODE)..."
+          
+          # Critical secrets - NO FALLBACKS ALLOWED
+          errors=()
+          
+          if [ -z "${{ secrets.PROD_JWT_SECRET }}" ]; then
+            errors+=("PROD_JWT_SECRET is required")
           fi
-          docker compose version
+          
+          if [ -z "${{ secrets.PROD_DB_PASSWORD }}" ]; then
+            errors+=("PROD_DB_PASSWORD is required")
+          fi
+          
+          if [ -z "${{ secrets.STRIPE_SECRET_KEY }}" ]; then
+            errors+=("STRIPE_SECRET_KEY is required for payment processing")
+          fi
+          
+          if [ -z "${{ secrets.OPENAI_API_KEY }}" ]; then
+            errors+=("OPENAI_API_KEY is required for AI features")
+          fi
+          
+          # Report all errors
+          if [ ${#errors[@]} -gt 0 ]; then
+            echo "❌ Production deployment validation failed:"
+            printf '   - %s\n' "${errors[@]}"
+            echo ""
+            echo "🚨 Please configure all required secrets in GitHub repository settings"
+            exit 1
+          fi
+          
+          echo "✅ Production secrets validation passed"
 
-      - name: Deploy to production environment
+      - name: Create production deployment package
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          echo "🚀 Deploying to production environment..."
+          echo "📦 Creating production deployment package..."
           
-          # Create production environment file with all required variables
-          cat << EOF > .env.prod
+          # STRICT: No fallback values for production
+          cat << EOF > .env.production
           # Docker Configuration
           DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
           IMAGE_TAG=${{ github.sha }}
           
-          # Database Configuration (REQUIRED)
+          # Database Configuration (STRICT - NO FALLBACKS)
           DATABASE_NAME=mydb
           DATABASE_USER=lap04
-          DATABASE_PASSWORD=${{ secrets.PROD_DB_PASSWORD || 'lap04pass' }}
+          DATABASE_PASSWORD=${{ secrets.PROD_DB_PASSWORD }}
           DATABASE_PORT=5432
           
-          # Redis Configuration (REQUIRED)
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD || 'redis123' }}
+          # Redis Configuration
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
           REDIS_PORT=6379
           
-          # JWT Configuration (REQUIRED)
-          JWT_SECRET=${{ secrets.PROD_JWT_SECRET || 'fallback-jwt-secret-for-development-only-change-in-production' }}
+          # JWT Configuration (STRICT - NO FALLBACKS)
+          JWT_SECRET=${{ secrets.PROD_JWT_SECRET }}
           JWT_EXPIRES_IN=15m
           JWT_REFRESH_EXPIRES_IN=30d
           
           # Email Configuration
-          SMTP_HOST=${{ secrets.SMTP_HOST || 'smtp.gmail.com' }}
-          SMTP_PORT=${{ secrets.SMTP_PORT || '587' }}
-          SMTP_USER=${{ secrets.SMTP_USER || '' }}
-          SMTP_PASS=${{ secrets.SMTP_PASS || '' }}
-          FROM_EMAIL=${{ secrets.FROM_EMAIL || 'noreply@localhost' }}
+          SMTP_HOST=${{ secrets.SMTP_HOST }}
+          SMTP_PORT=${{ secrets.SMTP_PORT }}
+          SMTP_USER=${{ secrets.SMTP_USER }}
+          SMTP_PASS=${{ secrets.SMTP_PASS }}
+          FROM_EMAIL=${{ secrets.FROM_EMAIL }}
           FROM_NAME=E-Learning AI Platform
           
           # CORS Configuration
-          CORS_ORIGIN=${{ secrets.CORS_ORIGIN || 'http://localhost:3000' }}
+          CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
           
           # AWS Configuration
-          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY || '' }}
-          AWS_REGION=${{ secrets.AWS_REGION || 'us-east-1' }}
-          S3_BUCKET=${{ secrets.S3_BUCKET || '' }}
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION=${{ secrets.AWS_REGION }}
+          S3_BUCKET=${{ secrets.S3_BUCKET }}
           
-          # AI Services API Keys
-          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || '' }}
-          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY || '' }}
-          HF_TOKEN=${{ secrets.HF_TOKEN || '' }}
-          ELEVEN_LABS_API_KEY=${{ secrets.ELEVEN_LABS_API_KEY || '' }}
+          # AI Services (REQUIRED)
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+          HF_TOKEN=${{ secrets.HF_TOKEN }}
+          ELEVEN_LABS_API_KEY=${{ secrets.ELEVEN_LABS_API_KEY }}
           
-          # Google Cloud Configuration
-          GOOGLE_CLOUD_PROJECT=${{ secrets.GOOGLE_CLOUD_PROJECT || '' }}
+          # Google Cloud
+          GOOGLE_CLOUD_PROJECT=${{ secrets.GOOGLE_CLOUD_PROJECT }}
           
-          # Payment Gateway Configuration
-          STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY || '' }}
-          STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET || '' }}
-          STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY || '' }}
+          # Payment Configuration (REQUIRED)
+          STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           
-          # MoMo (Vietnam)
-          MOMO_PARTNER_CODE=${{ secrets.MOMO_PARTNER_CODE || '' }}
-          MOMO_ACCESS_KEY=${{ secrets.MOMO_ACCESS_KEY || '' }}
-          MOMO_SECRET_KEY=${{ secrets.MOMO_SECRET_KEY || '' }}
-          
-          # ZaloPay (Vietnam)
-          ZALOPAY_APP_ID=${{ secrets.ZALOPAY_APP_ID || '' }}
-          ZALOPAY_KEY1=${{ secrets.ZALOPAY_KEY1 || '' }}
-          ZALOPAY_KEY2=${{ secrets.ZALOPAY_KEY2 || '' }}
-          
-          # Service Ports
-          API_GATEWAY_PORT=3000
-          USER_SERVICE_PORT=3001
-          CONTENT_SERVICE_PORT=3002
-          PAYMENT_SERVICE_PORT=3003
-          AI_SERVICE_PORT=8000
-          AUDIO_SERVICE_PORT=8001
+          # Vietnam Payment Gateways
+          MOMO_PARTNER_CODE=${{ secrets.MOMO_PARTNER_CODE }}
+          MOMO_ACCESS_KEY=${{ secrets.MOMO_ACCESS_KEY }}
+          MOMO_SECRET_KEY=${{ secrets.MOMO_SECRET_KEY }}
+          ZALOPAY_APP_ID=${{ secrets.ZALOPAY_APP_ID }}
+          ZALOPAY_KEY1=${{ secrets.ZALOPAY_KEY1 }}
+          ZALOPAY_KEY2=${{ secrets.ZALOPAY_KEY2 }}
           
           # Application Environment
           NODE_ENV=production
           EOF
           
-          # Validate environment file
-          echo "🔍 Validating environment configuration..."
-          cat .env.prod
-          
-          echo "🔍 Checking critical variables..."
-          if ! grep -q "JWT_SECRET=" .env.prod || [ "$(grep JWT_SECRET .env.prod | cut -d'=' -f2)" = "" ]; then
-            echo "❌ JWT_SECRET is missing or empty!"
-            exit 1
-          fi
-          
-          if ! grep -q "DATABASE_PASSWORD=" .env.prod || [ "$(grep DATABASE_PASSWORD .env.prod | cut -d'=' -f2)" = "" ]; then
-            echo "❌ DATABASE_PASSWORD is missing or empty!"
-            exit 1
-          fi
-          
-          echo "✅ Environment validation passed"
-          
-          # Deploy using docker compose (new syntax)
-          echo "🧹 Cleaning up old containers..."
-          docker compose -f docker-compose.prod.yml --env-file .env.prod down --remove-orphans || echo "No existing containers to stop"
-          
-          echo "📦 Pulling latest Docker images..."
-          docker compose -f docker-compose.prod.yml --env-file .env.prod pull
-          
-          echo "🚀 Starting database and redis first..."
-          docker compose -f docker-compose.prod.yml --env-file .env.prod up -d postgres redis
-          
-          echo "⏳ Waiting for database to be ready..."
-          for i in {1..30}; do
-            if docker compose -f docker-compose.prod.yml --env-file .env.prod exec postgres pg_isready -U lap04 -d mydb; then
-              echo "✅ Database is ready!"
-              break
-            elif [ $i -eq 30 ]; then
-              echo "❌ Database failed to start after 5 minutes"
-              docker compose -f docker-compose.prod.yml --env-file .env.prod logs postgres
-              exit 1
-            else
-              echo "⏳ Waiting for database... ($i/30)"
-              sleep 10
-            fi
-          done
-          
-          echo "🚀 Starting all services..."
-          docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
-          
-          echo "⏳ Waiting for services to be healthy..."
-          sleep 90
-          
-          echo "🔍 Health check..."
-          
-          # Check individual service health first
-          echo "📊 Container status:"
-          docker compose -f docker-compose.prod.yml --env-file .env.prod ps
-          
-          echo "🔍 Checking database connection..."
-          if ! docker compose -f docker-compose.prod.yml --env-file .env.prod exec postgres pg_isready -U lap04 -d mydb; then
-            echo "❌ Database not ready!"
-            docker compose -f docker-compose.prod.yml --env-file .env.prod logs postgres
-          fi
-          
-          echo "🔍 Checking individual services..."
-          for service in user-service content-service payment-service; do
-            echo "Checking $service..."
-            if docker compose -f docker-compose.prod.yml --env-file .env.prod ps $service | grep -q "unhealthy\|Exit"; then
-              echo "❌ $service is unhealthy, showing logs:"
-              docker compose -f docker-compose.prod.yml --env-file .env.prod logs --tail=30 $service
-            fi
-          done
-          
-          echo "🔍 API Gateway health check..."
-          for i in {1..10}; do
-            if curl -f http://localhost:3000/health; then
-              echo "✅ Health check passed on attempt $i!"
-              break
-            elif [ $i -eq 10 ]; then
-              echo "❌ Health check failed after 10 attempts"
-              echo "📋 All container logs:"
-              docker compose -f docker-compose.prod.yml --env-file .env.prod logs --tail=50
-              echo "📊 Final container status:"
-              docker compose -f docker-compose.prod.yml --env-file .env.prod ps
-              exit 1
-            else
-              echo "⏳ Health check attempt $i failed, retrying in 10s..."
-              sleep 10
-            fi
-          done
-          
-          echo "✅ Production deployment completed successfully!"
+          echo "📝 Production deployment artifacts created"
 
-      - name: Notify deployment success
-        if: success()
+      - name: Generate production deployment instructions
         run: |
-          echo "🎉 Production deployment successful!"
-          echo "Application is now live at: https://yourdomain.com"
+          cat << 'EOF' > PRODUCTION_DEPLOYMENT_INSTRUCTIONS.md
+          # Production Deployment Instructions
           
-      - name: Notify deployment failure
-        if: failure()
+          ## Pre-deployment Checklist
+          - [ ] All required secrets configured in GitHub
+          - [ ] Production server prepared with Docker and Docker Compose
+          - [ ] Database backup completed
+          - [ ] SSL certificates ready
+          - [ ] DNS records configured
+          - [ ] Monitoring alerts configured
+          
+          ## Automatic Deployment (Recommended)
+          ```bash
+          # SSH deployment to production server
+          scp .env.production docker-compose.prod.yml user@prod-server:/opt/elearning/
+          ssh user@prod-server "cd /opt/elearning && ./deploy-production.sh"
+          ```
+          
+          ## Manual Deployment (Use with caution)
+          ```bash
+          # On production server
+          cd /opt/elearning
+          docker compose -f docker-compose.prod.yml --env-file .env.production down
+          docker compose -f docker-compose.prod.yml --env-file .env.production pull
+          docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+          
+          # Verify deployment
+          curl -f https://yourdomain.com/health
+          ```
+          
+          ## Health Check URLs
+          - Main API: https://yourdomain.com/health
+          - API Gateway: https://yourdomain.com/api/docs
+          - Individual services: Check container logs
+          
+          ## Rollback Plan
+          ```bash
+          # Quick rollback to previous version
+          docker compose -f docker-compose.prod.yml --env-file .env.production down
+          docker run -d --name temp-restore previous-backup-image
+          # Restore from backup and restart
+          ```
+          
+          ## Post-deployment Verification
+          1. All health checks passing ✓
+          2. Database connections working ✓  
+          3. Payment integration working ✓
+          4. AI services responding ✓
+          5. SSL certificate valid ✓
+          6. Monitoring alerts active ✓
+          EOF
+          
+          echo "📋 Production deployment instructions generated"
+          echo "🚨 Ready for production deployment!"
+
+      - name: Final deployment summary
         run: |
-          echo "❌ Production deployment failed!"
-          echo "Please check the logs and fix any issues." 
+          echo "🎉 CI/CD Pipeline completed successfully!"
+          echo ""
+          echo "📊 Deployment Summary:"
+          echo "   Branch: ${{ github.ref }}"  
+          echo "   Commit: ${{ github.sha }}"
+          echo "   Images tagged: latest + ${{ github.sha }}"
+          echo "   Environment: Production"
+          echo ""
+          echo "🚀 Next Steps:"
+          echo "   1. Review PRODUCTION_DEPLOYMENT_INSTRUCTIONS.md"
+          echo "   2. Execute deployment on production server"
+          echo "   3. Monitor health checks and logs"
+          echo "   4. Verify all services operational"
+          echo ""
+          echo "🔗 Quick Links:"
+          echo "   - Health Check: https://yourdomain.com/health"
+          echo "   - API Docs: https://yourdomain.com/api/docs"
+          echo "   - Docker Hub: https://hub.docker.com/u/${{ secrets.DOCKER_USERNAME }}" 

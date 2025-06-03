@@ -1,15 +1,19 @@
-import express from 'express';
+import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import { PrismaClient } from '@prisma/client';
 
 // Load environment variables
 dotenv.config();
 
-const app = express();
+// Initialize Prisma Client
+const prisma = new PrismaClient();
+
+const app: Application = express();
 const PORT = process.env.PORT || 3003;
 
 // Security middleware
@@ -32,15 +36,32 @@ app.use(morgan('combined'));
 app.use(express.json({ limit: '1mb' })); // Smaller limit for payment service
 app.use(express.urlencoded({ extended: true }));
 
-// Health check
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    service: 'Payment Service',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    version: '1.0.0'
-  });
+// Health check with database connection
+app.get('/health', async (req, res) => {
+  try {
+    // Test database connection
+    await prisma.$queryRaw`SELECT 1`;
+    
+    res.status(200).json({
+      status: 'OK',
+      service: 'Payment Service',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      version: '1.0.0',
+      database: 'Connected'
+    });
+  } catch (error) {
+    console.error('Health check failed:', error);
+    res.status(503).json({
+      status: 'ERROR',
+      service: 'Payment Service',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      version: '1.0.0',
+      database: 'Disconnected',
+      error: 'Database connection failed'
+    });
+  }
 });
 
 // Stripe payment routes
@@ -230,9 +251,45 @@ app.use((error: any, req: express.Request, res: express.Response, next: express.
   });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`💳 Payment Service running on port ${PORT}`);
-  console.log(`📚 API Documentation: http://localhost:${PORT}/docs`);
-  console.log(`❤️  Health Check: http://localhost:${PORT}/health`);
-}); 
+// Export app for testing
+export { app, prisma };
+
+// Database initialization and server startup
+async function startServer() {
+  try {
+    // Connect to database
+    await prisma.$connect();
+    console.log('🗄️  Database connected successfully');
+
+    // Start server only if not in test environment
+    if (process.env.NODE_ENV !== 'test') {
+      app.listen(PORT, () => {
+        console.log(`💳 Payment Service running on port ${PORT}`);
+        console.log(`📚 API Documentation: http://localhost:${PORT}/docs`);
+        console.log(`❤️  Health Check: http://localhost:${PORT}/health`);
+        console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      });
+    }
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('Shutting down gracefully...');
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('Shutting down gracefully...');
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+// Start the server
+if (process.env.NODE_ENV !== 'test') {
+  startServer();
+} 

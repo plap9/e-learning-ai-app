@@ -33,15 +33,42 @@ app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Health check
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    service: 'API Gateway',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    version: '1.0.0'
-  });
+// Health check with backend service connectivity
+app.get('/health', async (req, res) => {
+  try {
+    const serviceChecks = await Promise.allSettled([
+      fetch(`${services.user}/health`).then(r => ({ service: 'user', ok: r.ok })).catch(() => ({ service: 'user', ok: false })),
+      fetch(`${services.content}/health`).then(r => ({ service: 'content', ok: r.ok })).catch(() => ({ service: 'content', ok: false })),
+      fetch(`${services.payment}/health`).then(r => ({ service: 'payment', ok: r.ok })).catch(() => ({ service: 'payment', ok: false })),
+      fetch(`${services.ai}/health`).then(r => ({ service: 'ai', ok: r.ok })).catch(() => ({ service: 'ai', ok: false })),
+      fetch(`${services.audio}/health`).then(r => ({ service: 'audio', ok: r.ok })).catch(() => ({ service: 'audio', ok: false }))
+    ]);
+
+    const serviceStatus = serviceChecks.map(result => 
+      result.status === 'fulfilled' ? result.value : { service: 'unknown', ok: false }
+    );
+
+    const allHealthy = serviceStatus.every(s => s.ok);
+
+    res.status(allHealthy ? 200 : 503).json({
+      status: allHealthy ? 'OK' : 'DEGRADED',
+      service: 'API Gateway',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      version: '1.0.0',
+      services: serviceStatus
+    });
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(503).json({
+      status: 'ERROR',
+      service: 'API Gateway',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      version: '1.0.0',
+      error: 'Failed to check backend services'
+    });
+  }
 });
 
 // Service routes with proxy

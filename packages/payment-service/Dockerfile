@@ -28,7 +28,10 @@ RUN pnpm --filter "@elearning/auth-utils" build || echo "No build script for aut
 RUN pnpm --filter "@elearning/logger" build || echo "No build script for logger"
 RUN pnpm --filter "@elearning/config-utils" build || echo "No build script for config-utils"
 
-# Build payment-service
+# Generate Prisma client and build payment-service
+WORKDIR /app/packages/payment-service
+RUN pnpm prisma generate
+WORKDIR /app
 RUN pnpm --filter "@elearning/payment-service" build
 
 # Production stage
@@ -43,18 +46,32 @@ WORKDIR /app
 # Install pnpm
 RUN npm install -g pnpm
 
-# Copy built application and dependencies
-COPY --from=base /app/packages/payment-service/dist ./dist
-COPY --from=base /app/packages/payment-service/package.json ./package.json
-COPY --from=base /app/node_modules ./node_modules
-COPY --from=base /app/packages/payment-service/node_modules ./packages/payment-service/node_modules
+# Copy package files and monorepo configuration
+COPY --from=base /app/package.json ./package.json
+COPY --from=base /app/pnpm-lock.yaml ./pnpm-lock.yaml
+COPY --from=base /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
+COPY --from=base /app/packages/payment-service/package.json ./packages/payment-service/package.json
+COPY --from=base /app/packages/payment-service/prisma ./packages/payment-service/prisma
+
+# Install production dependencies only (for the specific service)
+WORKDIR /app/packages/payment-service
+RUN pnpm install --frozen-lockfile --prod
+WORKDIR /app
+
+# Copy built application
+COPY --from=base /app/packages/payment-service/dist ./packages/payment-service/dist
+
+# Generate Prisma client in production stage (ensure it's available)
+WORKDIR /app/packages/payment-service
+RUN pnpm exec prisma generate
+WORKDIR /app
 
 # Expose port
 EXPOSE 3003
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
   CMD curl -f http://localhost:3003/health || exit 1
 
-# Start the application
-CMD ["node", "dist/index.js"] 
+# Start the application with database migration
+CMD ["sh", "-c", "cd packages/payment-service && pnpm exec prisma migrate deploy && node dist/index.js"] 
