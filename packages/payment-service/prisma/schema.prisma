@@ -1,4 +1,4 @@
-// Payment Service Prisma Schema
+// Payment Service Prisma Schema - VietQR Only
 generator client {
   provider = "prisma-client-js"
 }
@@ -9,17 +9,23 @@ datasource db {
 }
 
 // ================================
-// PAYMENT MANAGEMENT
+// PAYMENT MANAGEMENT - VIETQR ONLY
 // ================================
 
 model Payment {
   id            String           @id @default(cuid())
   userId        String
   amount        Decimal          @db.Decimal(10, 2)
-  currency      String           @default("USD")
+  currency      String           @default("VND")
   status        PaymentStatus    @default(PENDING)
-  provider      PaymentProvider
-  providerTxId  String?          // Transaction ID from payment provider
+  
+  // VietQR specific fields
+  qrCode        String?          // Base64 encoded QR code
+  qrCodeUrl     String?          // URL to QR code image
+  bankCode      String?          // Bank code (VCB, TCB, etc.)
+  accountNumber String?          // Bank account number
+  transferContent String?        // Transfer content/memo
+  
   description   String?
   metadata      Json?            // Additional payment data
 
@@ -32,19 +38,14 @@ model Payment {
   courseName    String?
   coursePrice   Decimal?         @db.Decimal(10, 2)
 
-  // Payment method details
-  paymentMethod String?          // card, bank_transfer, momo, zalopay, etc.
-  last4Digits   String?          // Last 4 digits of card/account
-  
   // Timestamps
   paidAt        DateTime?
-  refundedAt    DateTime?
+  expiredAt     DateTime?        // QR code expiration
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
   @@index([userId])
   @@index([status])
-  @@index([provider])
   @@index([createdAt])
   @@map("payments")
 }
@@ -55,21 +56,16 @@ model Subscription {
   plan            SubscriptionPlan
   status          SubscriptionStatus  @default(ACTIVE)
   
-  // Pricing
-  monthlyPrice    Decimal             @db.Decimal(10, 2)
-  yearlyPrice     Decimal?            @db.Decimal(10, 2)
-  currency        String              @default("USD")
+  // Pricing (VND only)
+  monthlyPrice    Decimal             @db.Decimal(12, 0) // VND doesn't use decimals
+  yearlyPrice     Decimal?            @db.Decimal(12, 0)
+  currency        String              @default("VND")
   
   // Billing
   billingCycle    BillingCycle        @default(MONTHLY)
   currentPeriodStart DateTime
   currentPeriodEnd   DateTime
   nextBillingDate    DateTime?
-  
-  // Provider details
-  stripeCustomerId     String?
-  stripeSubscriptionId String?
-  stripePriceId        String?
   
   // Cancellation
   cancelAt         DateTime?
@@ -93,36 +89,6 @@ model Subscription {
   @@map("subscriptions")
 }
 
-model PaymentMethod {
-  id            String              @id @default(cuid())
-  userId        String
-  type          PaymentMethodType
-  provider      PaymentProvider
-  
-  // Card details (encrypted/tokenized)
-  last4Digits   String?
-  cardBrand     String?             // visa, mastercard, etc.
-  expiryMonth   Int?
-  expiryYear    Int?
-  
-  // Provider tokens
-  stripePaymentMethodId String?
-  momoPaymentMethodId   String?
-  zalopayPaymentMethodId String?
-  
-  // Status
-  isDefault     Boolean             @default(false)
-  isActive      Boolean             @default(true)
-  
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-
-  @@index([userId])
-  @@index([type])
-  @@index([isDefault])
-  @@map("payment_methods")
-}
-
 model Invoice {
   id              String        @id @default(cuid())
   userId          String
@@ -131,8 +97,8 @@ model Invoice {
   
   // Invoice details
   invoiceNumber   String        @unique
-  amount          Decimal       @db.Decimal(10, 2)
-  currency        String        @default("USD")
+  amount          Decimal       @db.Decimal(12, 0) // VND
+  currency        String        @default("VND")
   status          InvoiceStatus @default(DRAFT)
   
   // Dates
@@ -143,11 +109,11 @@ model Invoice {
   // Items
   items           Json          // Line items
   
-  // Tax and discount
-  subtotal        Decimal       @db.Decimal(10, 2)
-  taxAmount       Decimal?      @db.Decimal(10, 2)
-  discountAmount  Decimal?      @db.Decimal(10, 2)
-  totalAmount     Decimal       @db.Decimal(10, 2)
+  // Tax and discount (VND)
+  subtotal        Decimal       @db.Decimal(12, 0)
+  taxAmount       Decimal?      @db.Decimal(12, 0)
+  discountAmount  Decimal?      @db.Decimal(12, 0)
+  totalAmount     Decimal       @db.Decimal(12, 0)
   
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -162,13 +128,14 @@ model Refund {
   id            String       @id @default(cuid())
   paymentId     String
   userId        String
-  amount        Decimal      @db.Decimal(10, 2)
-  currency      String       @default("USD")
+  amount        Decimal      @db.Decimal(12, 0) // VND
+  currency      String       @default("VND")
   reason        String?
   status        RefundStatus @default(PENDING)
   
-  // Provider details
-  providerRefundId String?
+  // Manual refund (admin processes)
+  processedBy   String?      // Admin user ID
+  bankTransferRef String?    // Bank transfer reference
   
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
@@ -180,7 +147,7 @@ model Refund {
 }
 
 // ================================
-// ENUMS
+// ENUMS - VIETQR FOCUSED
 // ================================
 
 enum PaymentStatus {
@@ -188,24 +155,8 @@ enum PaymentStatus {
   PROCESSING
   SUCCEEDED
   FAILED
+  EXPIRED
   CANCELED
-  REFUNDED
-  PARTIALLY_REFUNDED
-}
-
-enum PaymentProvider {
-  STRIPE
-  MOMO
-  ZALOPAY
-  BANK_TRANSFER
-  CASH
-}
-
-enum PaymentMethodType {
-  CARD
-  BANK_ACCOUNT
-  E_WALLET
-  CRYPTO
 }
 
 enum SubscriptionPlan {

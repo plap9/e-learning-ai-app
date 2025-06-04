@@ -43,11 +43,11 @@ app.get('/health', async (req, res) => {
     // Test database connection
     await prisma.$queryRaw`SELECT 1`;
     
-    res.status(200).json({
-      status: 'OK',
-      service: 'User Service',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
+  res.status(200).json({
+    status: 'OK',
+    service: 'User Service',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
       version: '1.0.0',
       database: 'Connected'
     });
@@ -61,7 +61,7 @@ app.get('/health', async (req, res) => {
       version: '1.0.0',
       database: 'Disconnected',
       error: 'Database connection failed'
-    });
+  });
   }
 });
 
@@ -169,12 +169,12 @@ async function startServer() {
     await prisma.$connect();
     console.log('🗄️  Database connected successfully');
 
-    // Start server only if not in test environment
-    if (process.env.NODE_ENV !== 'test') {
-      app.listen(PORT, () => {
-        console.log(`👤 User Service running on port ${PORT}`);
-        console.log(`📚 API Documentation: http://localhost:${PORT}/docs`);
-        console.log(`❤️  Health Check: http://localhost:${PORT}/health`);
+// Start server only if not in test environment
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`👤 User Service running on port ${PORT}`);
+    console.log(`📚 API Documentation: http://localhost:${PORT}/docs`);
+    console.log(`❤️  Health Check: http://localhost:${PORT}/health`);
         console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
       });
     }

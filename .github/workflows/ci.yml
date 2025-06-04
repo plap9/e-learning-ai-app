@@ -506,8 +506,9 @@ jobs:
           NODE_ENV=test
           CORS_ORIGIN=http://localhost:3000
           # Minimal required env vars for smoke test
-          STRIPE_SECRET_KEY=sk_test_minimal
           OPENAI_API_KEY=test-key
+          MOMO_PARTNER_CODE=test-momo
+          ZALOPAY_APP_ID=test-zalopay
           EOF
           
           echo "🐳 Testing Docker Compose syntax and image pulls..."
@@ -551,7 +552,6 @@ jobs:
     needs: [docker, test-infrastructure]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/develop'
-    environment: staging
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -618,7 +618,14 @@ jobs:
           AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID || '' }}
           AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY || '' }}
           OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || '' }}
-          STRIPE_SECRET_KEY=${{ secrets.STRIPE_TEST_SECRET_KEY || '' }}
+          
+          # Vietnam Payment Gateways (Sandbox for staging)
+          MOMO_PARTNER_CODE=${{ secrets.MOMO_TEST_PARTNER_CODE || secrets.MOMO_PARTNER_CODE || '' }}
+          MOMO_ACCESS_KEY=${{ secrets.MOMO_TEST_ACCESS_KEY || secrets.MOMO_ACCESS_KEY || '' }}
+          MOMO_SECRET_KEY=${{ secrets.MOMO_TEST_SECRET_KEY || secrets.MOMO_SECRET_KEY || '' }}
+          ZALOPAY_APP_ID=${{ secrets.ZALOPAY_TEST_APP_ID || secrets.ZALOPAY_APP_ID || '' }}
+          ZALOPAY_KEY1=${{ secrets.ZALOPAY_TEST_KEY1 || secrets.ZALOPAY_KEY1 || '' }}
+          ZALOPAY_KEY2=${{ secrets.ZALOPAY_TEST_KEY2 || secrets.ZALOPAY_KEY2 || '' }}
           EOF
           
           echo "📝 Staging deployment artifacts created"
@@ -666,15 +673,15 @@ jobs:
     needs: [docker, security-scan]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
-    environment: production
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # IMPROVED: Strict production secret validation
+      # IMPROVED: Strict production secret validation (Vietnam Market Focus)
       - name: Validate production secrets (STRICT)
         run: |
           echo "🔐 Validating production deployment secrets (STRICT MODE)..."
+          echo "🇻🇳 Focused on Vietnam market - VietQR Universal Payment Standard"
           
           # Critical secrets - NO FALLBACKS ALLOWED
           errors=()
@@ -687,12 +694,13 @@ jobs:
             errors+=("PROD_DB_PASSWORD is required")
           fi
           
-          if [ -z "${{ secrets.STRIPE_SECRET_KEY }}" ]; then
-            errors+=("STRIPE_SECRET_KEY is required for payment processing")
-          fi
-          
           if [ -z "${{ secrets.OPENAI_API_KEY }}" ]; then
             errors+=("OPENAI_API_KEY is required for AI features")
+          fi
+          
+          # VietQR Payment Gateway - Required for Vietnam market
+          if [ -z "${{ secrets.VIETQR_BANK_CODE }}" ] || [ -z "${{ secrets.VIETQR_ACCOUNT_NUMBER }}" ]; then
+            errors+=("VietQR payment gateway configuration required (VIETQR_BANK_CODE, VIETQR_ACCOUNT_NUMBER)")
           fi
           
           # Report all errors
@@ -705,6 +713,7 @@ jobs:
           fi
           
           echo "✅ Production secrets validation passed"
+          echo "🇻🇳 VietQR payment gateway ready for deployment!"
 
       - name: Create production deployment package
         env:
@@ -760,18 +769,17 @@ jobs:
           # Google Cloud
           GOOGLE_CLOUD_PROJECT=${{ secrets.GOOGLE_CLOUD_PROJECT }}
           
-          # Payment Configuration (REQUIRED)
-          STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
-          STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          # VietQR Payment Gateway (PRIMARY for Vietnam)
+          VIETQR_BANK_CODE=${{ secrets.VIETQR_BANK_CODE }}
+          VIETQR_ACCOUNT_NUMBER=${{ secrets.VIETQR_ACCOUNT_NUMBER }}
+          VIETQR_ACCOUNT_NAME=${{ secrets.VIETQR_ACCOUNT_NAME }}
+          VIETQR_SANDBOX_MODE=${{ secrets.VIETQR_SANDBOX_MODE || 'false' }}
+          PAYMENT_TIMEOUT_MINUTES=${{ secrets.PAYMENT_TIMEOUT_MINUTES || '15' }}
           
-          # Vietnam Payment Gateways
-          MOMO_PARTNER_CODE=${{ secrets.MOMO_PARTNER_CODE }}
-          MOMO_ACCESS_KEY=${{ secrets.MOMO_ACCESS_KEY }}
-          MOMO_SECRET_KEY=${{ secrets.MOMO_SECRET_KEY }}
-          ZALOPAY_APP_ID=${{ secrets.ZALOPAY_APP_ID }}
-          ZALOPAY_KEY1=${{ secrets.ZALOPAY_KEY1 }}
-          ZALOPAY_KEY2=${{ secrets.ZALOPAY_KEY2 }}
+          # Optional VietQR API Integration
+          VIETQR_API_KEY=${{ secrets.VIETQR_API_KEY || '' }}
+          VCB_API_KEY=${{ secrets.VCB_API_KEY || '' }}
+          TCB_API_KEY=${{ secrets.TCB_API_KEY || '' }}
           
           # Application Environment
           NODE_ENV=production
