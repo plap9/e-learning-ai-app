@@ -113,13 +113,17 @@ app.post('/vietqr/create-payment', async (req, res) => {
       }
     });
 
-    // Generate VietQR URL (Napas standard)
+    // Generate VietQR URL (Napas standard)  
+    const bankCode = process.env.VIETQR_BANK_CODE || 'ICB';
+    const accountNumber = process.env.VIETQR_ACCOUNT_NUMBER || '';
+    const accountName = process.env.VIETQR_ACCOUNT_NAME || '';
+    
     const qrCodeUrl = generateVietQRUrl({
-      bankCode: process.env.VIETQR_BANK_CODE,
-      accountNumber: process.env.VIETQR_ACCOUNT_NUMBER,
+      bankCode,
+      accountNumber,
       amount: amount,
       transferContent: transferContent,
-      accountName: process.env.VIETQR_ACCOUNT_NAME
+      accountName
     });
 
     // Update payment with QR code URL
@@ -128,7 +132,7 @@ app.post('/vietqr/create-payment', async (req, res) => {
       data: { qrCodeUrl }
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'VietQR payment created successfully',
       data: {
@@ -153,7 +157,7 @@ app.post('/vietqr/create-payment', async (req, res) => {
 
   } catch (error) {
     console.error('VietQR payment creation error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Payment creation failed',
       message: 'Unable to create VietQR payment',
       service: 'Payment Service'
@@ -178,7 +182,7 @@ app.get('/vietqr/payment-status/:paymentId', async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: {
         paymentId: payment.id,
@@ -193,7 +197,7 @@ app.get('/vietqr/payment-status/:paymentId', async (req, res) => {
 
   } catch (error) {
     console.error('Payment status check error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Status check failed',
       message: 'Unable to check payment status',
       service: 'Payment Service'
@@ -238,11 +242,11 @@ app.post('/vietqr/webhook', async (req, res) => {
       console.log(`Payment ${payment.id} confirmed via webhook`);
     }
 
-    res.status(200).json({ received: true });
+    return res.status(200).json({ received: true });
 
   } catch (error) {
     console.error('Webhook processing error:', error);
-    res.status(500).json({ error: 'Webhook processing failed' });
+    return res.status(500).json({ error: 'Webhook processing failed' });
   }
 });
 
@@ -286,7 +290,7 @@ app.post('/vietqr/confirm-payment/:paymentId', async (req, res) => {
       }
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'Payment confirmed successfully',
       data: {
@@ -298,7 +302,7 @@ app.post('/vietqr/confirm-payment/:paymentId', async (req, res) => {
 
   } catch (error) {
     console.error('Payment confirmation error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Payment confirmation failed',
       service: 'Payment Service'
     });
@@ -311,7 +315,7 @@ app.post('/vietqr/confirm-payment/:paymentId', async (req, res) => {
 
 // Subscription management routes
 app.get('/subscriptions', (req, res) => {
-  res.status(200).json({
+  return res.status(200).json({
     message: 'Get user subscriptions endpoint',
     status: 'Not implemented yet',
     service: 'Payment Service'
@@ -319,7 +323,7 @@ app.get('/subscriptions', (req, res) => {
 });
 
 app.post('/subscriptions', (req, res) => {
-  res.status(200).json({
+  return res.status(200).json({
     message: 'Create subscription endpoint',
     status: 'Not implemented yet',
     service: 'Payment Service'
@@ -337,14 +341,14 @@ app.get('/payments', async (req, res) => {
       take: 50
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: payments
     });
 
   } catch (error) {
     console.error('Payment history error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to fetch payment history',
       service: 'Payment Service'
     });
@@ -353,7 +357,7 @@ app.get('/payments', async (req, res) => {
 
 // API documentation
 app.get('/docs', (req, res) => {
-  res.json({
+  return res.json({
     name: 'E-Learning AI Payment Service',
     version: '2.0.0',
     description: 'VietQR-only payment processing service for Vietnam market',
@@ -387,7 +391,7 @@ app.get('/docs', (req, res) => {
 
 // Default route
 app.get('/', (req, res) => {
-  res.json({
+  return res.json({
     message: 'E-Learning AI Payment Service - VietQR Only',
     version: '2.0.0',
     status: 'Running',
@@ -454,7 +458,7 @@ function getBankName(bankCode?: string): string {
 
 // 404 handler
 app.use('*', (req, res) => {
-  res.status(404).json({
+  return res.status(404).json({
     error: 'Route not found',
     message: `The route ${req.originalUrl} does not exist on this service`,
     service: 'Payment Service - VietQR Only'
@@ -464,7 +468,7 @@ app.use('*', (req, res) => {
 // Error handler
 app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Error:', error);
-  res.status(500).json({
+  return res.status(500).json({
     error: 'Internal Server Error',
     message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong',
     service: 'Payment Service - VietQR Only'
