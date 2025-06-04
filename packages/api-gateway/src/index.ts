@@ -13,6 +13,33 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Security headers (simplified implementation for now)
+const applySecurityHeaders = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  // Content Security Policy
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'");
+  
+  // HSTS
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  
+  // XSS Protection
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  
+  // Clickjacking Protection
+  res.setHeader('X-Frame-Options', 'DENY');
+  
+  // Referrer Policy
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  
+  // Additional security headers
+  res.setHeader('X-DNS-Prefetch-Control', 'off');
+  res.setHeader('X-Download-Options', 'noopen');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  res.removeHeader('X-Powered-By');
+  
+  next();
+};
+
 // Security middleware
 app.use(helmet());
 app.use(cors({
@@ -32,6 +59,9 @@ app.use(compression());
 app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Apply security headers
+app.use(applySecurityHeaders);
 
 // Health check with backend service connectivity
 app.get('/health', async (req, res) => {
@@ -80,32 +110,37 @@ const services = {
   audio: process.env.AUDIO_SERVICE_URL || 'http://localhost:8001'
 };
 
-// Proxy configurations
+// Import authentication middleware
+import { authenticate, optionalAuth, protectRoute } from './middlewares/auth.middleware';
+
+// Proxy configurations with authentication
 app.use('/api/users', createProxyMiddleware({
   target: services.user,
   changeOrigin: true,
   pathRewrite: { '^/api/users': '' }
 }));
 
-app.use('/api/content', createProxyMiddleware({
+// Protected routes with authentication
+app.use('/api/content', ...protectRoute.auth, createProxyMiddleware({
   target: services.content,
   changeOrigin: true,
   pathRewrite: { '^/api/content': '' }
 }));
 
-app.use('/api/payments', createProxyMiddleware({
+app.use('/api/payments', ...protectRoute.auth, createProxyMiddleware({
   target: services.payment,
   changeOrigin: true,
   pathRewrite: { '^/api/payments': '' }
 }));
 
-app.use('/api/ai', createProxyMiddleware({
+// AI and Audio services - require premium for advanced features
+app.use('/api/ai', ...protectRoute.premium, createProxyMiddleware({
   target: services.ai,
   changeOrigin: true,
   pathRewrite: { '^/api/ai': '' }
 }));
 
-app.use('/api/audio', createProxyMiddleware({
+app.use('/api/audio', ...protectRoute.premium, createProxyMiddleware({
   target: services.audio,
   changeOrigin: true,
   pathRewrite: { '^/api/audio': '' }

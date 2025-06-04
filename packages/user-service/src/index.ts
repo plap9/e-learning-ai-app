@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import authRoutes from './routes/auth.routes';
+import { userRoutes } from './routes/user.routes';
 
 // Load environment variables
 dotenv.config();
@@ -67,6 +68,7 @@ app.get('/health', async (req, res) => {
 
 // Routes
 app.use('/auth', authRoutes);
+app.use('/', userRoutes);
 
 // User profile routes
 app.get('/profile', (req, res) => {

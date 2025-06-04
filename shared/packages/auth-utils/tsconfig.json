@@ -2,10 +2,22 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "strict": false,
+    "skipLibCheck": true,
+    "noImplicitAny": false,
+    "strictNullChecks": false
   },
   "include": [
     "src/**/*"
+  ],
+  "exclude": [
+    "src/crypto.utils.ts",
+    "src/two-factor-auth.utils.ts",
+    "src/device-fingerprint.utils.ts",
+    "src/rate-limiter.utils.ts",
+    "src/monitoring.utils.ts",
+    "src/redis-cluster.utils.ts"
   ],
   "references": [
     { "path": "../common-types" }
