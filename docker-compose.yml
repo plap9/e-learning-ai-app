@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Database
   postgres:
@@ -38,8 +36,8 @@ services:
   # API Gateway
   api-gateway:
     build:
-      context: ./packages/api-gateway
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./packages/api-gateway/Dockerfile
     container_name: api-gateway
     ports:
       - "3000:3000"
@@ -65,8 +63,8 @@ services:
   # User Service
   user-service:
     build:
-      context: ./packages/user-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./packages/user-service/Dockerfile
     container_name: user-service
     ports:
       - "3001:3001"
@@ -89,8 +87,8 @@ services:
   # Content Service
   content-service:
     build:
-      context: ./packages/content-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./packages/content-service/Dockerfile
     container_name: content-service
     ports:
       - "3002:3002"
@@ -112,8 +110,8 @@ services:
   # Payment Service
   payment-service:
     build:
-      context: ./packages/payment-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./packages/payment-service/Dockerfile
     container_name: payment-service
     ports:
       - "3003:3003"
@@ -136,8 +134,8 @@ services:
   # AI Service (Python)
   ai-service:
     build:
-      context: ./packages/ai-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./packages/ai-service/Dockerfile
     container_name: ai-service
     ports:
       - "8000:8000"
@@ -161,8 +159,8 @@ services:
   # Audio Processing Service (Python)
   audio-processing-service:
     build:
-      context: ./packages/audio-processing-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./packages/audio-processing-service/Dockerfile
     container_name: audio-processing-service
     ports:
       - "8001:8001"

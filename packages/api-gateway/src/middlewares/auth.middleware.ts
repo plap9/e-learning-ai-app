@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
 // Extend Express Request interface
@@ -29,10 +29,11 @@ async function getUserById(userId: string): Promise<any | null> {
     // In API Gateway, we can make HTTP request to user service
     const userServiceUrl = process.env.USER_SERVICE_URL || 'http://localhost:3001';
     
-    const response = await fetch(`${userServiceUrl}/users/${userId}`, {
+    const response = await fetch(`${userServiceUrl}/api/users/${userId}`, {
+      method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'Internal-Service': 'api-gateway' // Internal service header
+        'X-Internal-Request': 'true'
       }
     });
 
@@ -41,7 +42,7 @@ async function getUserById(userId: string): Promise<any | null> {
       return null;
     }
 
-    const userData = await response.json();
+    const userData = await response.json() as any;
     
     return {
       id: userData.id,
@@ -87,7 +88,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     }
 
     const parts = authHeader.split(' ');
-    if (parts.length !== 2 || parts[0] !== 'Bearer') {
+    if (parts.length !== 2 || parts[0] !== 'Bearer' || !parts[1]) {
       res.status(401).json({
         error: 'Authorization header format không đúng',
         message: 'Expected: Bearer <token>'
@@ -98,8 +99,8 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     const token = parts[1];
     
     // Verify token
-    const secret = process.env.JWT_SECRET || 'fallback-secret-key';
-    const decoded = jwt.verify(token, secret as string) as unknown as JWTPayload;
+    const secret = (process.env.JWT_SECRET || 'fallback-secret-key') as string;
+    const decoded = jwt.verify(token, secret) as unknown as JWTPayload;
 
     // Check if token is access token
     if (decoded.type !== 'access') {
@@ -172,13 +173,13 @@ export const optionalAuth = async (req: Request, res: Response, next: NextFuncti
     }
 
     const parts = authHeader.split(' ');
-    if (parts.length !== 2 || parts[0] !== 'Bearer') {
+    if (parts.length !== 2 || parts[0] !== 'Bearer' || !parts[1]) {
       return next();
     }
 
     const token = parts[1];
-    const secret = process.env.JWT_SECRET || 'fallback-secret-key';
-    const decoded = jwt.verify(token, secret as string) as unknown as JWTPayload;
+    const secret = (process.env.JWT_SECRET || 'fallback-secret-key') as string;
+    const decoded = jwt.verify(token, secret) as unknown as JWTPayload;
 
     if (decoded.type === 'access') {
       const user = await getUserById(decoded.userId);

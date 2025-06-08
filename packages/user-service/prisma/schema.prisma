@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,13 +7,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ================================
-// USER MANAGEMENT
-// ================================
-
 model User {
-  id                   String    @id @default(cuid())
-  email                String    @unique
+  id                   String               @id @default(cuid())
+  email                String               @unique
   passwordHash         String
   firstName            String
   lastName             String
@@ -27,38 +17,32 @@ model User {
   dateOfBirth          DateTime?
   gender               Gender?
   phoneNumber          String?
-  language             String    @default("en")
-  timezone             String    @default("UTC")
-  isActive             Boolean   @default(true)
-  isVerified           Boolean   @default(false)
+  language             String               @default("en")
+  timezone             String               @default("UTC")
+  isActive             Boolean              @default(true)
+  isVerified           Boolean              @default(false)
   verificationToken    String?
   resetPasswordToken   String?
   resetPasswordExpires DateTime?
   lastLoginAt          DateTime?
-  
-  // Soft Delete
   deletedAt            DateTime?
-  
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-
-  // Relationships
-  profile              UserProfile?
-  enrollments          Enrollment[]
-  progress             LearningProgress[]
-  sessions             UserSession[]
-  payments             Payment[]
-  subscriptions        Subscription[]
-  achievements         UserAchievement[]
-  conversations        Conversation[]
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
   audioRecordings      AudioRecording[]
-  reviews              Review[]
+  conversations        Conversation[]
+  enrollments          Enrollment[]
   exerciseSubmissions  ExerciseSubmission[]
-  tokens               Token[]
   flashcards           Flashcard[]
+  progress             LearningProgress[]
+  payments             Payment[]
+  reviews              Review[]
+  subscriptions        Subscription[]
+  tokens               Token[]
+  achievements         UserAchievement[]
   mistakes             UserMistake[]
+  profile              UserProfile?
+  sessions             UserSession[]
 
-  // Indexes for performance
   @@index([email])
   @@index([isActive])
   @@index([isVerified])
@@ -68,41 +52,31 @@ model User {
 }
 
 model UserProfile {
-  id              String         @id @default(cuid())
-  userId          String         @unique
-  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  currentLevel    ProficiencyLevel @default(BEGINNER)
-  targetLevel     ProficiencyLevel @default(INTERMEDIATE)
-  learningGoals   String[]
-  interests       String[]
-  preferredTopics String[]
-  studyTimePerDay Int?           // minutes per day
-  reminderTime    String?        // HH:MM format
-  isPublic        Boolean        @default(false)
-  bio             String?
-  
-  // Learning preferences
-  visualLearning      Boolean @default(true)
-  auditoryLearning    Boolean @default(true)
-  kinestheticLearning Boolean @default(false)
-  
-  // Gamification - Streak Tracking
-  currentStreak       Int @default(0)  // Current consecutive days of study
-  longestStreak       Int @default(0)  // Best streak ever achieved
-  lastStudyDate       DateTime?       // Last date user studied (for streak calculation)
-  totalStudyDays      Int @default(0) // Total number of days studied
-  
-  // Study Statistics
-  totalStudyTime      Int @default(0) // Total minutes studied
-  weeklyGoalMinutes   Int @default(150) // Weekly study goal (default 2.5 hours)
-  monthlyGoalMinutes  Int @default(600) // Monthly study goal (default 10 hours)
-  
-  // Soft Delete
-  deletedAt       DateTime?
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                  String           @id @default(cuid())
+  userId              String           @unique
+  currentLevel        ProficiencyLevel @default(BEGINNER)
+  targetLevel         ProficiencyLevel @default(INTERMEDIATE)
+  learningGoals       String[]
+  interests           String[]
+  preferredTopics     String[]
+  studyTimePerDay     Int?
+  reminderTime        String?
+  isPublic            Boolean          @default(false)
+  bio                 String?
+  visualLearning      Boolean          @default(true)
+  auditoryLearning    Boolean          @default(true)
+  kinestheticLearning Boolean          @default(false)
+  currentStreak       Int              @default(0)
+  longestStreak       Int              @default(0)
+  lastStudyDate       DateTime?
+  totalStudyDays      Int              @default(0)
+  totalStudyTime      Int              @default(0)
+  weeklyGoalMinutes   Int              @default(150)
+  monthlyGoalMinutes  Int              @default(600)
+  deletedAt           DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([currentLevel])
@@ -116,10 +90,10 @@ model UserProfile {
 model UserSession {
   id        String   @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   token     String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([token])
@@ -127,16 +101,15 @@ model UserSession {
   @@map("user_sessions")
 }
 
-// Enhanced Token Management
 model Token {
   id        String    @id @default(cuid())
   userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   type      TokenType
   token     String    @unique
   expiresAt DateTime
   isUsed    Boolean   @default(false)
   createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([token])
@@ -146,12 +119,8 @@ model Token {
   @@map("tokens")
 }
 
-// ================================
-// CONTENT MANAGEMENT
-// ================================
-
 model Course {
-  id               String           @id @default(cuid())
+  id               String               @id @default(cuid())
   title            String
   description      String
   shortDescription String?
@@ -159,40 +128,28 @@ model Course {
   level            ProficiencyLevel
   category         CourseCategory
   tags             String[]
-  language         String           @default("en")
+  language         String               @default("en")
   estimatedHours   Float?
-  price            Decimal?         @db.Decimal(10, 2)
-  isPublished      Boolean          @default(false)
-  isFree           Boolean          @default(false)
+  price            Decimal?             @db.Decimal(10, 2)
+  isPublished      Boolean              @default(false)
+  isFree           Boolean              @default(false)
   order            Int?
-
-  // SEO
-  slug            String  @unique
-  metaTitle       String?
-  metaDescription String?
-
-  // AI Generation
-  isAiGenerated Boolean @default(false)
-  aiPrompt      String?
-
-  // Stats for optimization
-  totalEnrollments Int @default(0)
+  slug             String               @unique
+  metaTitle        String?
+  metaDescription  String?
+  isAiGenerated    Boolean              @default(false)
+  aiPrompt         String?
+  totalEnrollments Int                  @default(0)
   averageRating    Float?
-  
-  // Soft Delete
-  deletedAt DateTime?
+  deletedAt        DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  prerequisites    CoursePrerequisite[] @relation("CoursePrerequisites")
+  dependents       CoursePrerequisite[] @relation("DependentCourses")
+  enrollments      Enrollment[]
+  lessons          Lesson[]
+  reviews          Review[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relationships
-  lessons       Lesson[]
-  enrollments   Enrollment[]
-  reviews       Review[]
-  prerequisites CoursePrerequisite[] @relation("CoursePrerequisites")
-  dependents    CoursePrerequisite[] @relation("DependentCourses")
-
-  // Comprehensive indexes
   @@index([level])
   @@index([category])
   @@index([isPublished])
@@ -210,9 +167,8 @@ model CoursePrerequisite {
   id             String @id @default(cuid())
   courseId       String
   prerequisiteId String
-
-  course       Course @relation("CoursePrerequisites", fields: [courseId], references: [id], onDelete: Cascade)
-  prerequisite Course @relation("DependentCourses", fields: [prerequisiteId], references: [id], onDelete: Cascade)
+  course         Course @relation("CoursePrerequisites", fields: [courseId], references: [id], onDelete: Cascade)
+  prerequisite   Course @relation("DependentCourses", fields: [prerequisiteId], references: [id], onDelete: Cascade)
 
   @@unique([courseId, prerequisiteId])
   @@index([courseId])
@@ -221,40 +177,29 @@ model CoursePrerequisite {
 }
 
 model Lesson {
-  id       String @id @default(cuid())
-  courseId String
-  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  id              String             @id @default(cuid())
+  courseId        String
+  title           String
+  description     String?
+  content         String
+  contentType     ContentType        @default(TEXT)
+  videoUrl        String?
+  audioUrl        String?
+  duration        Int?
+  order           Int
+  isPublished     Boolean            @default(false)
+  isAiGenerated   Boolean            @default(false)
+  aiPrompt        String?
+  difficulty      DifficultyLevel    @default(INTERMEDIATE)
+  completionCount Int                @default(0)
+  deletedAt       DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  exercises       Exercise[]
+  flashcards      Flashcard[]
+  progress        LearningProgress[]
+  course          Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
-  title       String
-  description String?
-  content     String
-  contentType ContentType @default(TEXT)
-  videoUrl    String?
-  audioUrl    String?
-  duration    Int?
-  order       Int
-  isPublished Boolean     @default(false)
-
-  // AI Generation
-  isAiGenerated Boolean         @default(false)
-  aiPrompt      String?
-  difficulty    DifficultyLevel @default(INTERMEDIATE)
-
-  // Stats
-  completionCount Int @default(0)
-  
-  // Soft Delete
-  deletedAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relationships
-  exercises Exercise[]
-  progress  LearningProgress[]
-  flashcards Flashcard[]
-
-  // Indexes for performance
   @@index([courseId])
   @@index([isPublished])
   @@index([difficulty])
@@ -264,38 +209,28 @@ model Lesson {
 }
 
 model Exercise {
-  id       String @id @default(cuid())
-  lessonId String
-  lesson   Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
-
+  id            String               @id @default(cuid())
+  lessonId      String
   title         String
   description   String?
   type          ExerciseType
   content       Json
   correctAnswer Json?
   explanation   String?
-  points        Int          @default(10)
+  points        Int                  @default(10)
   timeLimit     Int?
   order         Int
-
-  // AI Generation
-  isAiGenerated Boolean         @default(false)
+  isAiGenerated Boolean              @default(false)
   aiPrompt      String?
-  difficulty    DifficultyLevel @default(INTERMEDIATE)
-
-  // Stats
-  attemptCount    Int   @default(0)
-  successRate     Float @default(0)
-  averageScore    Float @default(0)
-  
-  // Soft Delete
-  deletedAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relationships
-  submissions ExerciseSubmission[]
+  difficulty    DifficultyLevel      @default(INTERMEDIATE)
+  attemptCount  Int                  @default(0)
+  successRate   Float                @default(0)
+  averageScore  Float                @default(0)
+  deletedAt     DateTime?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  submissions   ExerciseSubmission[]
+  lesson        Lesson               @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
   @@index([lessonId])
   @@index([type])
@@ -308,18 +243,16 @@ model Exercise {
 model ExerciseSubmission {
   id         String   @id @default(cuid())
   exerciseId String
-  exercise   Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
   userId     String
+  answer     Json
+  isCorrect  Boolean
+  score      Float
+  timeSpent  Int?
+  attempts   Int      @default(1)
+  feedback   String?
+  createdAt  DateTime @default(now())
+  exercise   Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  answer    Json
-  isCorrect Boolean
-  score     Float
-  timeSpent Int?
-  attempts  Int     @default(1)
-  feedback  String?
-
-  createdAt DateTime @default(now())
 
   @@unique([exerciseId, userId])
   @@index([exerciseId])
@@ -330,25 +263,20 @@ model ExerciseSubmission {
   @@map("exercise_submissions")
 }
 
-// ================================
-// LEARNING PROGRESS
-// ================================
-
 model Enrollment {
-  id       String @id @default(cuid())
-  userId   String
-  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  courseId String
-  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
-
+  id          String    @id @default(cuid())
+  userId      String
+  courseId    String
   progress    Float     @default(0)
   isCompleted Boolean   @default(false)
   startedAt   DateTime  @default(now())
   completedAt DateTime?
+  course      Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, courseId])
-  @@index([userId])      // Find all courses for a user
-  @@index([courseId])    // Find all users in a course
+  @@index([userId])
+  @@index([courseId])
   @@index([isCompleted])
   @@index([progress])
   @@index([startedAt])
@@ -356,18 +284,17 @@ model Enrollment {
 }
 
 model LearningProgress {
-  id       String @id @default(cuid())
-  userId   String
-  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lessonId String
-  lesson   Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
-
+  id             String    @id @default(cuid())
+  userId         String
+  lessonId       String
   isCompleted    Boolean   @default(false)
   timeSpent      Int       @default(0)
   score          Float?
   attempts       Int       @default(0)
   lastAccessedAt DateTime  @default(now())
   completedAt    DateTime?
+  lesson         Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, lessonId])
   @@index([userId])
@@ -380,11 +307,10 @@ model LearningProgress {
 model UserAchievement {
   id            String      @id @default(cuid())
   userId        String
-  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   achievementId String
+  earnedAt      DateTime    @default(now())
   achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
-
-  earnedAt DateTime @default(now())
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, achievementId])
   @@index([userId])
@@ -394,22 +320,17 @@ model UserAchievement {
 }
 
 model Achievement {
-  id          String          @id @default(cuid())
+  id          String            @id @default(cuid())
   title       String
   description String
   icon        String?
   type        AchievementType
   criteria    Json
-  points      Int             @default(0)
-  isActive    Boolean         @default(true)
-
-  // Soft Delete
-  deletedAt DateTime?
-
-  createdAt DateTime @default(now())
-
-  // Relationships
-  users UserAchievement[]
+  points      Int               @default(0)
+  isActive    Boolean           @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime          @default(now())
+  users       UserAchievement[]
 
   @@index([type])
   @@index([isActive])
@@ -417,45 +338,30 @@ model Achievement {
   @@map("achievements")
 }
 
-// ================================
-// FLASHCARD & SRS SYSTEM
-// ================================
-
 model Flashcard {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lessonId        String?  // Optional: from which lesson this card was created
-  lesson          Lesson?  @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+  id             String            @id @default(cuid())
+  userId         String
+  lessonId       String?
+  front          String
+  back           String
+  notes          String?
+  cardType       FlashcardType     @default(VOCABULARY)
+  nextReviewAt   DateTime          @default(now())
+  interval       Int               @default(1)
+  repetitions    Int               @default(0)
+  easeFactor     Float             @default(2.5)
+  quality        Int?
+  totalReviews   Int               @default(0)
+  correctReviews Int               @default(0)
+  isActive       Boolean           @default(true)
+  isMastered     Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  reviews        FlashcardReview[]
+  lesson         Lesson?           @relation(fields: [lessonId], references: [id])
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // Card Content
-  front           String   // Front side (e.g., "Hello")
-  back            String   // Back side (e.g., "Xin chào")
-  notes           String?  // Additional notes or examples
-  cardType        FlashcardType @default(VOCABULARY)
-  
-  // SRS (Spaced Repetition System) Fields
-  nextReviewAt    DateTime @default(now()) // When to review this card next
-  interval        Int      @default(1)     // Days until next review
-  repetitions     Int      @default(0)     // Number of successful reviews
-  easeFactor      Float    @default(2.5)   // Ease factor for SRS algorithm
-  quality         Int?     // Last quality of response (0-5)
-  
-  // Statistics
-  totalReviews    Int      @default(0)
-  correctReviews  Int      @default(0)
-  
-  // Status
-  isActive        Boolean  @default(true)
-  isMastered      Boolean  @default(false) // Card mastered (very long interval)
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  // Relationships
-  reviews         FlashcardReview[]
-
-  @@index([userId, nextReviewAt])  // Critical for SRS queries
+  @@index([userId, nextReviewAt])
   @@index([userId, isActive])
   @@index([userId, isMastered])
   @@index([lessonId])
@@ -464,93 +370,67 @@ model Flashcard {
 }
 
 model FlashcardReview {
-  id          String    @id @default(cuid())
-  flashcardId String
-  flashcard   Flashcard @relation(fields: [flashcardId], references: [id], onDelete: Cascade)
-  userId      String    // Denormalized for faster queries
-  
-  quality     Int       // Quality of response (0-5, SM-2 algorithm)
-  timeSpent   Int?      // Milliseconds spent on review
-  wasCorrect  Boolean   // Whether the answer was correct
-  
-  // SRS state after this review
+  id             String    @id @default(cuid())
+  flashcardId    String
+  userId         String
+  quality        Int
+  timeSpent      Int?
+  wasCorrect     Boolean
   newInterval    Int
   newEaseFactor  Float
   newRepetitions Int
-  
-  reviewedAt  DateTime  @default(now())
+  reviewedAt     DateTime  @default(now())
+  flashcard      Flashcard @relation(fields: [flashcardId], references: [id], onDelete: Cascade)
 
   @@index([flashcardId])
   @@index([userId, reviewedAt])
   @@map("flashcard_reviews")
 }
 
-// ================================
-// MISTAKE PATTERN ANALYSIS
-// ================================
-
 model UserMistake {
-  id           String   @id @default(cuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  mistakeType  MistakeType  // Type of mistake (grammar, pronunciation, etc.)
-  mistakeCode  String       // Specific error code (e.g., "PAST_TENSE", "PRONUNCIATION_TH")
-  context      String?      // The sentence/context where mistake occurred
-  correction   String?      // The correct version
-  
-  // Frequency and recency
-  count        Int          @default(1)  // How many times this mistake occurred
-  severity     MistakeSeverity @default(MEDIUM)
-  lastSeenAt   DateTime     @default(now())
-  firstSeenAt  DateTime     @default(now())
-  
-  // Source information
-  sourceType   String?      // Where the mistake was identified (exercise, conversation, etc.)
-  sourceId     String?      // ID of the source (exerciseId, conversationId, etc.)
-  
-  // Learning recommendation
-  isResolved   Boolean      @default(false) // Has user improved on this mistake?
-  practiceCount Int         @default(0)     // How many times user practiced this
-  
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id            String          @id @default(cuid())
+  userId        String
+  mistakeType   MistakeType
+  mistakeCode   String
+  context       String?
+  correction    String?
+  count         Int             @default(1)
+  severity      MistakeSeverity @default(MEDIUM)
+  lastSeenAt    DateTime        @default(now())
+  firstSeenAt   DateTime        @default(now())
+  sourceType    String?
+  sourceId      String?
+  isResolved    Boolean         @default(false)
+  practiceCount Int             @default(0)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, mistakeCode, context])
   @@index([userId, mistakeType])
   @@index([userId, mistakeCode])
   @@index([userId, isResolved])
   @@index([lastSeenAt])
   @@index([severity])
-  @@unique([userId, mistakeCode, context]) // Prevent duplicate mistakes with same context
   @@map("user_mistakes")
 }
 
-// ================================
-// PAYMENT SYSTEM
-// ================================
-
 model Subscription {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  plan      SubscriptionPlan
-  status    SubscriptionStatus
-  startDate DateTime
-  endDate   DateTime?
-  autoRenew Boolean            @default(true)
-
-  // Payment provider details
+  id                   String             @id @default(cuid())
+  userId               String
+  plan                 SubscriptionPlan
+  status               SubscriptionStatus
+  startDate            DateTime
+  endDate              DateTime?
+  autoRenew            Boolean            @default(true)
   stripeCustomerId     String?
   stripeSubscriptionId String?
   momoCustomerId       String?
   zalopayCustomerId    String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relationships
-  payments Payment[]
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  payments             Payment[]
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([plan])
@@ -561,65 +441,47 @@ model Subscription {
 }
 
 model Payment {
-  id             String        @id @default(cuid())
-  userId         String
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  subscriptionId String?
-  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
-
-  amount   Decimal         @db.Decimal(10, 2)
-  currency String          @default("USD")
-  status   PaymentStatus
-  provider PaymentProvider
-
-  // Provider-specific IDs
+  id                   String          @id @default(cuid())
+  userId               String
+  subscriptionId       String?
+  amount               Decimal         @db.Decimal(10, 2)
+  currency             String          @default("USD")
+  status               PaymentStatus
+  provider             PaymentProvider
   stripePaymentId      String?
   momoTransactionId    String?
   zalopayTransactionId String?
+  description          String?
+  metadata             Json?
+  failureReason        String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  subscription         Subscription?   @relation(fields: [subscriptionId], references: [id])
+  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // Metadata
-  description   String?
-  metadata      Json?
-  failureReason String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId])           // All payments by user
-  @@index([subscriptionId])   // All payments for subscription
-  @@index([provider])         // Filter by payment provider
-  @@index([status])           // Filter by payment status
-  @@index([createdAt])        // Sort by date
-  @@index([amount])           // Sort by amount
+  @@index([userId])
+  @@index([subscriptionId])
+  @@index([provider])
+  @@index([status])
+  @@index([createdAt])
+  @@index([amount])
   @@map("payments")
 }
 
-// ================================
-// AI & CONVERSATION
-// ================================
-
 model Conversation {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  title      String?
-  topic      String?
-  language   String          @default("en")
-  difficulty DifficultyLevel @default(INTERMEDIATE)
-  isActive   Boolean         @default(true)
-
-  // Stats
-  messageCount Int @default(0)
-  
-  // Soft Delete
-  deletedAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relationships
-  messages ConversationMessage[]
+  id           String                @id @default(cuid())
+  userId       String
+  title        String?
+  topic        String?
+  language     String                @default("en")
+  difficulty   DifficultyLevel       @default(INTERMEDIATE)
+  isActive     Boolean               @default(true)
+  messageCount Int                   @default(0)
+  deletedAt    DateTime?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  messages     ConversationMessage[]
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([language])
@@ -633,14 +495,12 @@ model Conversation {
 model ConversationMessage {
   id             String       @id @default(cuid())
   conversationId String
+  role           MessageRole
+  content        String
+  audioUrl       String?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  role     MessageRole
-  content  String
-  audioUrl String?
-  metadata Json?
-
-  createdAt DateTime @default(now())
 
   @@index([conversationId])
   @@index([role])
@@ -649,30 +509,25 @@ model ConversationMessage {
 }
 
 model AudioRecording {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  fileName        String
-  originalText    String?
-  transcribedText String?
-  audioUrl        String
-  duration        Float?
-  fileSize        Int?
-
-  // Analysis results
+  id                 String                @id @default(cuid())
+  userId             String
+  fileName           String
+  originalText       String?
+  transcribedText    String?
+  audioUrl           String
+  duration           Float?
+  fileSize           Int?
   pronunciationScore Float?
   fluencyScore       Float?
   accuracyScore      Float?
   completenessScore  Float?
   overallScore       Float?
-
-  feedback          String?
-  suggestions       String[]
-  processingStatus  AudioProcessingStatus @default(PENDING)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  feedback           String?
+  suggestions        String[]
+  processingStatus   AudioProcessingStatus @default(PENDING)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  user               User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([processingStatus])
@@ -682,22 +537,18 @@ model AudioRecording {
 }
 
 model Review {
-  id       String @id @default(cuid())
-  userId   String
-  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  courseId String
-  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
-
+  id          String    @id @default(cuid())
+  userId      String
+  courseId    String
   rating      Int
   title       String?
   content     String?
-  isPublished Boolean @default(true)
-
-  // Soft Delete
-  deletedAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isPublished Boolean   @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  course      Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, courseId])
   @@index([courseId])
@@ -707,10 +558,6 @@ model Review {
   @@index([createdAt])
   @@map("reviews")
 }
-
-// ================================
-// ENUMS
-// ================================
 
 enum TokenType {
   EMAIL_VERIFICATION

@@ -266,4 +266,41 @@ class UserController {
           auditoryLearning,
           kinestheticLearning,
           weeklyGoalMinutes: weeklyGoalMinutes || 150,
- 
+          monthlyGoalMinutes: monthlyGoalMinutes || 600,
+          updatedAt: new Date()
+        },
+        create: {
+          userId,
+          currentLevel: currentLevel || 'BEGINNER',
+          targetLevel: targetLevel || 'INTERMEDIATE',
+          learningGoals,
+          interests,
+          preferredTopics,
+          studyTimePerDay,
+          reminderTime,
+          isPublic: isPublic || false,
+          bio,
+          visualLearning: visualLearning || false,
+          auditoryLearning: auditoryLearning || false,
+          kinestheticLearning: kinestheticLearning || false,
+          weeklyGoalMinutes: weeklyGoalMinutes || 150,
+          monthlyGoalMinutes: monthlyGoalMinutes || 600
+        }
+      });
+
+      return res.json({
+        message: 'Preferences updated successfully',
+        profile: updatedProfile
+      });
+
+    } catch (error: any) {
+      console.error('Update preferences error:', error);
+      return res.status(500).json({
+        error: 'Internal server error',
+        message: 'Failed to update user preferences'
+      });
+    }
+  }
+}
+
+export default new UserController(); 

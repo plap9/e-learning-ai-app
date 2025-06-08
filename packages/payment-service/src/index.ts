@@ -5,7 +5,7 @@ import morgan from 'morgan';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, PaymentStatus } from '@prisma/client';
 
 // Load environment variables
 dotenv.config();
@@ -98,7 +98,7 @@ app.post('/vietqr/create-payment', async (req, res) => {
         userId,
         amount: parseFloat(amount),
         currency: 'VND',
-        status: 'PENDING',
+        status: PaymentStatus.PENDING,
         description,
         courseId,
         courseName,
@@ -220,7 +220,7 @@ app.post('/vietqr/webhook', async (req, res) => {
     const payment = await prisma.payment.findFirst({
       where: {
         transferContent: transferContent,
-        status: 'PENDING'
+        status: PaymentStatus.PENDING
       }
     });
 
@@ -229,7 +229,7 @@ app.post('/vietqr/webhook', async (req, res) => {
       await prisma.payment.update({
         where: { id: payment.id },
         data: {
-          status: 'SUCCEEDED',
+          status: PaymentStatus.SUCCEEDED,
           paidAt: new Date(),
           metadata: {
             ...payment.metadata as any,
@@ -267,7 +267,7 @@ app.post('/vietqr/confirm-payment/:paymentId', async (req, res) => {
       });
     }
 
-    if (payment.status !== 'PENDING') {
+    if (payment.status !== PaymentStatus.PENDING) {
       return res.status(400).json({
         error: 'Payment already processed',
         message: `Payment status is ${payment.status}`,
@@ -279,7 +279,7 @@ app.post('/vietqr/confirm-payment/:paymentId', async (req, res) => {
     await prisma.payment.update({
       where: { id: paymentId },
       data: {
-        status: 'SUCCEEDED',
+        status: PaymentStatus.SUCCEEDED,
         paidAt: new Date(),
         metadata: {
           ...payment.metadata as any,
@@ -295,7 +295,7 @@ app.post('/vietqr/confirm-payment/:paymentId', async (req, res) => {
       message: 'Payment confirmed successfully',
       data: {
         paymentId: payment.id,
-        status: 'SUCCEEDED',
+        status: PaymentStatus.SUCCEEDED,
         paidAt: new Date().toISOString()
       }
     });

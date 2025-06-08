@@ -34,11 +34,11 @@
     "@types/node": "^20.8.0",
     "@typescript-eslint/eslint-plugin": "^6.7.0",
     "@typescript-eslint/parser": "^6.7.0",
-    "eslint": "^8.50.0",
-    "rimraf": "^5.0.5",
-    "typescript": "^5.2.2",
     "concurrently": "^8.2.2",
-    "nodemon": "^3.0.1"
+    "eslint": "^8.50.0",
+    "nodemon": "^3.0.1",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.2.2"
   },
   "engines": {
     "node": ">=18.0.0",
@@ -52,6 +52,14 @@
   "pnpm": {
     "overrides": {
       "react-refresh": "~0.14.0"
-    }
+    },
+    "ignoredBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "@scarf/scarf",
+      "prisma",
+      "sharp",
+      "unrs-resolver"
+    ]
   }
-} 
+}
