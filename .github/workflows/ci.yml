@@ -406,10 +406,10 @@ jobs:
             -t ${{ secrets.DOCKER_USERNAME }}/elearning-payment-service:${{ github.sha }} \
             --push .
 
-      # OPTIMIZED: Python services với service-specific context
+      # FIXED: Python services với root context để access shared packages
       - name: Build and push Python services
         run: |
-          echo "🐍 Building Python services with service-specific context..."
+          echo "🐍 Building Python services with root context..."
           
           # AI Service
           echo "📦 Building AI Service..."
@@ -418,7 +418,7 @@ jobs:
             -f packages/ai-service/Dockerfile \
             -t ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:latest \
             -t ${{ secrets.DOCKER_USERNAME }}/elearning-ai-service:${{ github.sha }} \
-            --push ./packages/ai-service
+            --push .
           
           # Audio Processing Service
           echo "📦 Building Audio Processing Service..."
@@ -427,7 +427,7 @@ jobs:
             -f packages/audio-processing-service/Dockerfile \
             -t ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:latest \
             -t ${{ secrets.DOCKER_USERNAME }}/elearning-audio-service:${{ github.sha }} \
-            --push ./packages/audio-processing-service
+            --push .
 
       - name: Verify images
         run: |
