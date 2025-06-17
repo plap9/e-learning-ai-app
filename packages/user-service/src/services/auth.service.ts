@@ -13,20 +13,13 @@ import {
   MissingRequiredFieldsError,
   InvalidEmailFormatError,
   SystemError,
-  ExternalServiceError
-} from '../utils/errors';
-import {
+  ExternalServiceError,
   PasswordsDoNotMatchError,
-  WeakPasswordError,
   InvalidTokenError,
   TokenExpiredError,
-  InvalidRefreshTokenError,
-  UserNotFoundError,
-  EmailAlreadyVerifiedError,
-  PasswordResetFailedError,
-  EmailVerificationFailedError,
-  LogoutFailedError
-} from '../utils/custom-errors';
+  UserNotFoundError
+} from '../utils/errors';
+// Note: These error classes are now imported from errors.ts (consolidated)
 import { appLogger } from '../utils/logger';
 import { validateEmail, validatePassword } from '../validators/auth.validators';
 import { JWTUtils } from '../utils/jwt.utils';
@@ -373,15 +366,17 @@ class AuthService {
 
       // Re-throw known custom errors
       if (error instanceof PasswordsDoNotMatchError || 
-          error instanceof WeakPasswordError ||
+          error instanceof PasswordMissingRequirementsError ||
           error instanceof InvalidTokenError) {
         throw error;
       }
 
       // Wrap unknown errors
-      throw new PasswordResetFailedError({
-        originalError: error instanceof Error ? error.message : String(error)
-      });
+      throw new SystemError(
+        'Password reset failed due to system error',
+        'SYSTEM_5003_PASSWORD_RESET_FAILED',
+        { originalError: error instanceof Error ? error.message : String(error) }
+      );
     }
   }
 
@@ -503,7 +498,8 @@ class AuthService {
   }
 
   private generateRefreshToken(userId: string): string {
-    return JWTUtils.generateRefreshToken(userId, 'FREE'); // Plan is not needed for refresh tokens
+    // For refresh tokens, plan is not needed as it will be fetched during token refresh
+    return JWTUtils.generateRefreshToken(userId, 'FREE');
   }
 }
 

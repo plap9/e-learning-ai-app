@@ -30,61 +30,14 @@ import {
 } from '../utils/errors';
 
 // Type definitions
-interface Logger {
-  info: (message: string, meta?: Record<string, unknown>) => void;
-  warn: (message: string, meta?: Record<string, unknown>) => void;
-  error: (message: string, meta?: Record<string, unknown>) => void;
-  logAuth: (event: string, email?: string, userId?: string, success?: boolean) => void;
-  logSecurity: (event: string, severity: 'low' | 'medium' | 'high', details: Record<string, unknown>) => void;
-}
-
-interface UserPayload {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  isVerified: boolean;
-  plan: string;
-}
-
-interface RequestContext {
-  requestId: string;
-  userId?: string;
-  userAgent: string;
-  ip: string;
-  startTime: number;
-  apiVersion: string;
-}
-
-interface AuthRequest extends Request {
-  logger?: Logger;
-  user?: UserPayload;
-  context?: RequestContext;
-}
-
-interface ApiResponse<T = unknown> {
-  success: boolean;
-  data?: T;
-  message?: string;
-  meta: {
-    timestamp: string;
-    requestId?: string;
-    version: string;
-    duration?: number;
-    [key: string]: unknown;
-  };
-}
-
-interface HealthMetrics {
-  status: string;
-  timestamp: string;
-  uptime: number;
-  memory: NodeJS.MemoryUsage;
-  cpu: NodeJS.CpuUsage;
-  nodeVersion: string;
-  environment: string;
-  version: string;
-}
+import { 
+  AuthRequest, 
+  ApiResponse, 
+  HealthMetrics, 
+  Logger, 
+  UserPayload, 
+  RequestContext 
+} from '../types/express';
 
 // Configuration constants (using centralized config)
 const CONFIG = authConfig;
@@ -439,16 +392,21 @@ class AuthController {
     })
   ];
 
-  // Logout endpoint with validation
+  // Logout endpoint - public endpoint that only requires refreshToken
   logout = [
     requestSizeLimit(),
     asyncHandler(async (req: AuthRequest, res: Response) => {
       const { refreshToken } = req.body;
       const requestLogger = req.logger || logger;
-      const authHeader = req.headers.authorization;
 
-      if (!authHeader) {
-        throw new InvalidCredentialsError('Không có token xác thực');
+      // Note: This is a public endpoint - no authHeader required
+      // Only refreshToken in body is needed for logout
+
+      if (!refreshToken) {
+        throw new ValidationError(
+          'Refresh token không được cung cấp',
+          'AUTH_4017_MISSING_REFRESH_TOKEN'
+        );
       }
 
       requestLogger.info('User logout attempt', {
@@ -457,12 +415,10 @@ class AuthController {
         requestId: req.context?.requestId
       });
 
-      // If refresh token is provided, invalidate it
-      if (refreshToken) {
-        await MetricsCollector.trackOperation('logout', async () => {
-          await authService.logout(refreshToken);
-        });
-      }
+      // Invalidate refresh token
+      await MetricsCollector.trackOperation('logout', async () => {
+        await authService.logout(refreshToken);
+      });
 
       const duration = req.context ? Date.now() - req.context.startTime : 0;
       requestLogger.info('User logout successful', {

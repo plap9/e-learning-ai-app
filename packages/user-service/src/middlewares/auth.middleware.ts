@@ -4,35 +4,12 @@ import { authConfig } from '../config/auth.config';
 import { ErrorHandler } from '../utils/error-handler.utils';
 import { appLogger as logger } from '../utils/logger';
 import { AuthenticationError } from '../utils/errors';
-import { RequestContext, setContextUserId, getRequestContext } from './request-context.middleware';
+import { setContextUserId, getRequestContext } from './request-context.middleware';
+import { AuthRequest, UserPayload, RequestContext } from '../types/express';
 import { JWTUtils } from '../utils/jwt.utils';
 import type { JWTPayload } from '../utils/jwt.utils';
 
 const prisma = new PrismaClient();
-
-interface UserPayload {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  isVerified: boolean;
-  plan: string;
-}
-
-// Enhanced Request interface for auth (using shared context)
-interface AuthRequest extends Request {
-  user?: UserPayload;
-  context?: RequestContext;
-}
-
-// Extend Express Request interface
-declare global {
-  namespace Express {
-    interface Request {
-      user?: UserPayload;
-    }
-  }
-}
 
 export const authenticateToken = async (req: Request, res: Response, next: NextFunction): Promise<Response | void> => {
   const authReq = req as AuthRequest;
@@ -233,7 +210,7 @@ export const requirePlan = (requiredPlan: 'FREE' | 'BASIC' | 'PREMIUM' | 'ENTERP
 };
 
 // Middleware to refresh JWT token
-export const refreshToken = async (req: Request, res: Response): Promise<void> => {
+export const refreshToken = async (req: Request, res: Response): Promise<Response | void> => {
   try {
     const { refreshToken } = req.body;
 
@@ -307,19 +284,36 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
       }
     });
   } catch (error: any) {
-    console.error('Refresh token error:', error);
+    const authReq = req as AuthRequest;
+    
+    logger.error('Refresh token error', { 
+      error: error.message, 
+      stack: error.stack,
+      requestId: authReq.context?.requestId || 'unknown'
+    });
 
-    if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
-      res.status(401).json({
-        error: 'Refresh token không hợp lệ',
-        message: 'Vui lòng đăng nhập lại.'
-      });
-      return;
+    if (error.name === 'JsonWebTokenError') {
+      const authError = new AuthenticationError(
+        'Refresh token không hợp lệ',
+        'AUTH_4015_INVALID_REFRESH_TOKEN'
+      );
+      return ErrorHandler.handleAuthenticationError(authError, authReq, res);
     }
 
-    res.status(500).json({
-      error: 'Lỗi hệ thống',
-      message: 'Đã xảy ra lỗi khi làm mới token.'
-    });
+    if (error.name === 'TokenExpiredError') {
+      const authError = new AuthenticationError(
+        'Refresh token đã hết hạn. Vui lòng đăng nhập lại',
+        'AUTH_4016_REFRESH_TOKEN_EXPIRED'
+      );
+      return ErrorHandler.handleAuthenticationError(authError, authReq, res);
+    }
+
+    // Handle known custom errors
+    if (error instanceof AuthenticationError) {
+      return ErrorHandler.handleAuthenticationError(error, authReq, res);
+    }
+
+    // Handle unknown errors
+    return ErrorHandler.handleGenericError(error, authReq, res);
   }
 }; 

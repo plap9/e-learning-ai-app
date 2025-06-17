@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 
 // JWT payload interfaces
 export interface JWTPayload {
@@ -19,7 +19,7 @@ export interface RefreshTokenPayload extends JWTPayload {
 
 // JWT signing options
 interface JWTSignOptions {
-  expiresIn?: string | number;
+  expiresIn?: string;
   issuer?: string;
   audience?: string;
 }
@@ -45,16 +45,11 @@ export class JWTUtils {
   static sign(payload: Omit<JWTPayload, 'iat' | 'exp'>, options?: JWTSignOptions): string {
     const secret = this.getSecret();
     
-    return jwt.sign(
-      payload,
-      secret,
-      {
-        expiresIn: options?.expiresIn || '15m',
-        issuer: options?.issuer || 'e-learning-app',
-        audience: options?.audience || 'e-learning-users',
-        ...options
-      }
-    );
+    return jwt.sign(payload, secret, {
+      expiresIn: options?.expiresIn || '15m',
+      issuer: options?.issuer || 'e-learning-app',
+      audience: options?.audience || 'e-learning-users'
+    } as SignOptions);
   }
 
   /**

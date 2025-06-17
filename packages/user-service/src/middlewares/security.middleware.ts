@@ -3,7 +3,9 @@ import cors from 'cors';
 import { authConfig } from '../config/auth.config';
 import { ValidationError } from '../utils/errors';
 import { appLogger as logger } from '../utils/logger';
-import { requestContextMiddleware, RequestContext, getRequestContext } from './request-context.middleware';
+import { requestContextMiddleware, getRequestContext } from './request-context.middleware';
+import { loggerMiddleware } from './logger.middleware';
+import { RequestContext } from '../types/express';
 
 // Enhanced Request interface (using shared RequestContext)
 interface SecurityRequest extends Request {
@@ -197,8 +199,10 @@ export const responseTimeMiddleware = (req: SecurityRequest, res: Response, next
   res.on('finish', () => {
     const responseTime = Date.now() - context.startTime;
     
-    // Add response time header
-    res.set('X-Response-Time', `${responseTime}ms`);
+    // Add response time header (only if headers not sent)
+    if (!res.headersSent) {
+      res.set('X-Response-Time', `${responseTime}ms`);
+    }
     
     // Log performance metrics
     const level = responseTime > authConfig.PERFORMANCE_THRESHOLDS.ERROR ? 'error' :
@@ -249,6 +253,7 @@ export const cspMiddleware = (req: Request, res: Response, next: NextFunction): 
 // Combined security middleware stack
 export const securityMiddlewareStack = [
   requestContextMiddleware, // MUST be first to set up context
+  loggerMiddleware, // Setup req.logger with requestId
   responseTimeMiddleware,
   securityHeaders,
   corsMiddleware,

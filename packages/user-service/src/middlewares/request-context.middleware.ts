@@ -1,43 +1,19 @@
 import { Request, Response, NextFunction } from 'express';
 import { authConfig } from '../config/auth.config';
-
-// Request context interface
-export interface RequestContext {
-  requestId: string;
-  userId?: string;
-  userAgent: string;
-  ip: string;
-  startTime: number;
-  apiVersion: string;
-}
-
-// Enhanced Request interface với context
-export interface ContextRequest extends Request {
-  context?: RequestContext;
-}
-
-// Extend Express Request globally
-declare global {
-  namespace Express {
-    interface Request {
-      context?: RequestContext;
-    }
-  }
-}
+import { RequestContext } from '../types/express';
 
 /**
  * Request context middleware - should be first in middleware chain
  * Sets up request context with unique ID, timing, and metadata
  */
 export const requestContextMiddleware = (req: Request, res: Response, next: NextFunction): void => {
-  const contextReq = req as ContextRequest;
   
   // Generate unique request ID
   const requestId = (req.headers['x-request-id'] as string) || 
                    `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
   // Set up request context
-  contextReq.context = {
+  req.context = {
     requestId,
     userAgent: req.headers['user-agent'] || 'unknown',
     ip: req.ip || req.connection.remoteAddress || 'unknown',
@@ -56,7 +32,7 @@ export const requestContextMiddleware = (req: Request, res: Response, next: Next
  * Utility function to get request context
  */
 export const getRequestContext = (req: Request): RequestContext | undefined => {
-  return (req as ContextRequest).context;
+  return req.context;
 };
 
 /**

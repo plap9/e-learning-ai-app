@@ -107,7 +107,9 @@ const getEnvironmentConfig = (): Partial<AuthConfig> => {
   const env = process.env.NODE_ENV || 'development';
 
   const baseConfig: Partial<AuthConfig> = {
-    DEFAULT_API_VERSION: process.env.DEFAULT_API_VERSION as 'v1' | 'v2' || 'v1',
+    DEFAULT_API_VERSION: (['v1', 'v2'].includes(process.env.DEFAULT_API_VERSION || '')) 
+      ? (process.env.DEFAULT_API_VERSION as 'v1' | 'v2') 
+      : 'v1',
     HEALTH_CACHE_TTL: parseInt(process.env.HEALTH_CACHE_TTL || '30000'),
     DEFAULT_REQUEST_SIZE_LIMIT: parseInt(process.env.REQUEST_SIZE_LIMIT || '1048576'),
   };
