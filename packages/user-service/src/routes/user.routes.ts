@@ -1,18 +1,23 @@
 import { Router } from 'express';
 import userController from '../controllers/user.controller';
-import { authenticateToken } from '../middlewares/auth.middleware';
+import { securityMiddlewareStack } from '../middlewares/security.middleware';
+import { createErrorMiddleware } from '../utils/error-handler.utils';
 
 const router: Router = Router();
 
-// Internal route for API Gateway to fetch user info
-router.get('/users/:userId', userController.getUserById);
+// Apply security middleware stack to all routes
+router.use(securityMiddlewareStack);
 
-// User profile routes (protected)
-router.get('/profile', authenticateToken, userController.getProfile);
-router.put('/profile', authenticateToken, userController.updateProfile);
+// Apply centralized error handling
+router.use(createErrorMiddleware());
 
-// User preferences
-router.get('/preferences', authenticateToken, userController.getPreferences);
-router.put('/preferences', authenticateToken, userController.updatePreferences);
+// Internal API for API Gateway - get user by ID
+router.get('/internal/:userId', ...userController.getUserByIdEndpoint);
 
-export { router as userRoutes }; 
+// Public user routes (require authentication)
+router.get('/profile', ...userController.getProfileEndpoint);
+router.put('/profile', ...userController.updateProfileEndpoint);
+router.get('/preferences', ...userController.getPreferencesEndpoint);
+router.put('/preferences', ...userController.updatePreferencesEndpoint);
+
+export default router; 

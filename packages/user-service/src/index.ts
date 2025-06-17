@@ -13,7 +13,7 @@ import { generalRateLimit } from './middlewares/rate-limit.middleware';
 
 // Import routes
 import authRoutes from './routes/auth.routes';
-import { userRoutes } from './routes/user.routes';
+import userRoutes from './routes/user.routes';
 
 // Load environment variables
 dotenv.config();

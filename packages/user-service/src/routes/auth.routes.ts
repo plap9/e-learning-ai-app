@@ -1,21 +1,31 @@
 import { Router } from 'express';
 import { authController } from '../controllers/auth.controller';
 import { authenticateToken, requirePlan, refreshToken } from '../middlewares/auth.middleware';
-import { validateRegistration, validateLogin, validateForgotPassword, validateResetPassword, validateResendVerification } from '../validators/auth.validators';
+import { securityMiddlewareStack } from '../middlewares/security.middleware';
+import { createErrorMiddleware } from '../utils/error-handler.utils';
 
 const router: Router = Router();
 
-// Public authentication routes
-router.post('/register', validateRegistration, authController.register);
-router.post('/login', validateLogin, authController.login);
-router.post('/forgot-password', validateForgotPassword, authController.forgotPassword);
-router.post('/reset-password', validateResetPassword, authController.resetPassword);
-router.get('/verify-email', authController.verifyEmail);
-router.post('/resend-verification-email', validateResendVerification, authController.resendVerificationEmail);
+// Apply security middleware stack to all routes
+router.use(securityMiddlewareStack);
+
+// Apply centralized error handling
+router.use(createErrorMiddleware());
+
+// Public authentication routes - validation and rate limiting built into controller
+router.post('/register', ...authController.register);
+router.post('/login', ...authController.login);
+router.post('/forgot-password', ...authController.forgotPassword);
+router.post('/reset-password', ...authController.resetPassword);
+router.get('/verify-email', ...authController.verifyEmail);
+router.post('/resend-verification-email', ...authController.resendVerificationEmail);
 
 // Token management
 router.post('/refresh-token', refreshToken);
-router.post('/logout', authController.logout);
+router.post('/logout', ...authController.logout);
+
+// Health check
+router.get('/health', ...authController.health);
 
 // Protected routes examples
 router.get('/profile', authenticateToken, (req, res) => {

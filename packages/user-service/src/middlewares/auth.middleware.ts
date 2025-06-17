@@ -1,53 +1,84 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
+import { authConfig } from '../config/auth.config';
+import { ErrorHandler } from '../utils/error-handler.utils';
+import { appLogger as logger } from '../utils/logger';
+import { AuthenticationError } from '../utils/errors';
+import { RequestContext, setContextUserId, getRequestContext } from './request-context.middleware';
+import { JWTUtils } from '../utils/jwt.utils';
+import type { JWTPayload } from '../utils/jwt.utils';
 
 const prisma = new PrismaClient();
 
-interface JWTPayload {
-  userId: string;
+interface UserPayload {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  isVerified: boolean;
   plan: string;
-  type: string;
-  iat?: number;
-  exp?: number;
+}
+
+// Enhanced Request interface for auth (using shared context)
+interface AuthRequest extends Request {
+  user?: UserPayload;
+  context?: RequestContext;
 }
 
 // Extend Express Request interface
 declare global {
   namespace Express {
     interface Request {
-      user?: {
-        id: string;
-        plan: string;
-      };
+      user?: UserPayload;
     }
   }
 }
 
-export const authenticateToken = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const authenticateToken = async (req: Request, res: Response, next: NextFunction): Promise<Response | void> => {
+  const authReq = req as AuthRequest;
+  
   try {
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
+    // Enhanced security logging for token access attempts
+    logger.logSecurity('Token authentication attempt', 'low', {
+      hasToken: !!token,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      requestId: authReq.context?.requestId || 'unknown',
+      url: req.originalUrl,
+      method: req.method
+    });
+
     if (!token) {
-      res.status(401).json({
-        error: 'Token không được cung cấp',
-        message: 'Vui lòng đăng nhập để truy cập tài nguyên này.'
-      });
-      return;
+      const error = new AuthenticationError(
+        'Token không được cung cấp',
+        'AUTH_4001_MISSING_TOKEN'
+      );
+      
+      return ErrorHandler.handleAuthenticationError(error, authReq, res);
     }
 
     // Verify JWT token
-    const secret = process.env.JWT_SECRET || 'fallback-secret-key';
-    const decoded = jwt.verify(token, secret) as JWTPayload;
+    const decoded = JWTUtils.verify(token);
 
     // Check if token is access token
     if (decoded.type !== 'access') {
-      res.status(401).json({
-        error: 'Token không hợp lệ',
-        message: 'Vui lòng sử dụng access token.'
+      const error = new AuthenticationError(
+        'Vui lòng sử dụng access token',
+        'AUTH_4002_INVALID_TOKEN_TYPE'
+      );
+      
+      logger.logSecurity('Invalid token type used', 'medium', {
+        tokenType: decoded.type,
+        expectedType: 'access',
+        userId: decoded.userId,
+        ip: req.ip,
+        requestId: authReq.context?.requestId || 'unknown'
       });
-      return;
+      
+      return ErrorHandler.handleAuthenticationError(error, authReq, res);
     }
 
     // Check if user still exists
@@ -56,6 +87,8 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
       select: {
         id: true,
         email: true,
+        firstName: true,
+        lastName: true,
         isVerified: true,
         subscriptions: {
           where: { status: 'ACTIVE' },
@@ -67,54 +100,99 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
     });
 
     if (!user) {
-      res.status(401).json({
-        error: 'Người dùng không tồn tại',
-        message: 'Tài khoản đã bị xóa hoặc không hợp lệ.'
+      const error = new AuthenticationError(
+        'Tài khoản đã bị xóa hoặc không hợp lệ',
+        'AUTH_4003_USER_NOT_FOUND'
+      );
+      
+      logger.logSecurity('Token user not found', 'high', {
+        userId: decoded.userId,
+        ip: req.ip,
+        requestId: authReq.context?.requestId || 'unknown'
       });
-      return;
+      
+      return ErrorHandler.handleAuthenticationError(error, authReq, res);
     }
 
     // Optional: Check if email is verified
     if (!user.isVerified) {
-      res.status(401).json({
-        error: 'Email chưa được xác thực',
-        message: 'Vui lòng xác thực email trước khi truy cập tài nguyên này.',
-        action: 'VERIFY_EMAIL'
+      const error = new AuthenticationError(
+        'Vui lòng xác thực email trước khi truy cập tài nguyên này',
+        'AUTH_4004_EMAIL_NOT_VERIFIED'
+      );
+      
+      logger.logSecurity('Unverified user attempted access', 'medium', {
+        userId: decoded.userId,
+        email: user.email.replace(authConfig.EMAIL_MASK_REGEX, '*'),
+        ip: req.ip,
+        requestId: authReq.context?.requestId || 'unknown'
       });
-      return;
+      
+      return ErrorHandler.handleAuthenticationError(error, authReq, res);
     }
 
     // Add user info to request
     req.user = {
       id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      isVerified: user.isVerified,
       plan: user.subscriptions[0]?.plan || 'FREE'
     };
 
+    // Update request context with user info
+    setContextUserId(authReq, user.id);
+
+    // Log successful authentication
+    logger.logSecurity('Token authentication successful', 'low', {
+      userId: user.id,
+      plan: user.subscriptions[0]?.plan || 'FREE',
+      ip: req.ip,
+      requestId: authReq.context?.requestId || 'unknown'
+    });
+
     next();
   } catch (error: any) {
-    console.error('Auth middleware error:', error);
+    logger.error('Auth middleware error', {
+      error: error.message,
+      stack: error.stack,
+      ip: req.ip,
+      requestId: authReq.context?.requestId || 'unknown'
+    });
 
     if (error.name === 'JsonWebTokenError') {
-      res.status(401).json({
-        error: 'Token không hợp lệ',
-        message: 'Token đã bị thay đổi hoặc không đúng định dạng.'
+      const authError = new AuthenticationError(
+        'Token đã bị thay đổi hoặc không đúng định dạng',
+        'AUTH_4005_INVALID_TOKEN_FORMAT'
+      );
+      
+      logger.logSecurity('Invalid JWT token format', 'high', {
+        error: error.message,
+        ip: req.ip,
+        requestId: authReq.context?.requestId || 'unknown'
       });
-      return;
+      
+      return ErrorHandler.handleAuthenticationError(authError, authReq, res);
     }
 
     if (error.name === 'TokenExpiredError') {
-      res.status(401).json({
-        error: 'Token đã hết hạn',
-        message: 'Vui lòng đăng nhập lại để tiếp tục.',
-        action: 'REFRESH_TOKEN'
+      const authError = new AuthenticationError(
+        'Vui lòng đăng nhập lại để tiếp tục',
+        'AUTH_4006_TOKEN_EXPIRED'
+      );
+      
+      logger.logSecurity('Expired token used', 'medium', {
+        expiredAt: error.expiredAt,
+        ip: req.ip,
+        requestId: authReq.context?.requestId || 'unknown'
       });
-      return;
+      
+      return ErrorHandler.handleAuthenticationError(authError, authReq, res);
     }
 
-    res.status(500).json({
-      error: 'Lỗi hệ thống',
-      message: 'Đã xảy ra lỗi khi xác thực. Vui lòng thử lại sau.'
-    });
+    // For other errors, use generic error handler
+    return ErrorHandler.handleGenericError(error, authReq, res);
   }
 };
 
@@ -168,8 +246,7 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
     }
 
     // Verify refresh token
-    const secret = process.env.JWT_SECRET || 'fallback-secret-key';
-    const decoded = jwt.verify(refreshToken, secret) as JWTPayload;
+    const decoded = JWTUtils.verify(refreshToken);
 
     if (decoded.type !== 'refresh') {
       res.status(401).json({
@@ -214,9 +291,10 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
       type: 'access'
     };
 
-    const newAccessToken = (jwt.sign as any)(accessTokenPayload, secret, {
-      expiresIn: process.env.JWT_EXPIRES_IN || '15m'
-    });
+    const newAccessToken = JWTUtils.generateAccessToken(
+      session.user.id, 
+      session.user.subscriptions[0]?.plan || 'FREE'
+    );
 
     res.status(200).json({
       accessToken: newAccessToken,

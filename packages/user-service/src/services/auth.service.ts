@@ -7,11 +7,7 @@ import {
   EmailAlreadyExistsError,
   InvalidCredentialsError,
   EmailNotVerifiedError,
-  TokenExpiredError,
-  InvalidTokenError,
-  UserNotFoundError,
   UserAccountDeactivatedError,
-  PasswordsDoNotMatchError,
   PasswordTooShortError,
   PasswordMissingRequirementsError,
   MissingRequiredFieldsError,
@@ -19,8 +15,21 @@ import {
   SystemError,
   ExternalServiceError
 } from '../utils/errors';
+import {
+  PasswordsDoNotMatchError,
+  WeakPasswordError,
+  InvalidTokenError,
+  TokenExpiredError,
+  InvalidRefreshTokenError,
+  UserNotFoundError,
+  EmailAlreadyVerifiedError,
+  PasswordResetFailedError,
+  EmailVerificationFailedError,
+  LogoutFailedError
+} from '../utils/custom-errors';
 import { appLogger } from '../utils/logger';
 import { validateEmail, validatePassword } from '../validators/auth.validators';
+import { JWTUtils } from '../utils/jwt.utils';
 
 const prisma = new PrismaClient();
 
@@ -315,46 +324,65 @@ class AuthService {
   }
 
   async resetPassword(token: string, newPassword: string, confirmNewPassword: string) {
-    // Validate passwords match
-    if (newPassword !== confirmNewPassword) {
-      throw new Error('PASSWORDS_DO_NOT_MATCH');
-    }
+    try {
+      // Validate passwords match
+      if (newPassword !== confirmNewPassword) {
+        throw new PasswordsDoNotMatchError();
+      }
 
-    // Validate password strength
-    this.validatePassword(newPassword);
+      // Validate password strength
+      this.validatePassword(newPassword);
 
-    // Find and validate token
-    const tokenRecord = await prisma.token.findFirst({
-      where: {
-        token,
-        type: TokenType.PASSWORD_RESET,
-        isUsed: false,
-        expiresAt: { gt: new Date() }
-      },
-      include: { user: true }
-    });
-
-    if (!tokenRecord) {
-      throw new Error('INVALID_OR_EXPIRED_TOKEN');
-    }
-
-    // Hash new password
-    const passwordHash = await bcrypt.hash(newPassword, 12);
-
-    // Update user password and mark token as used
-    await prisma.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id: tokenRecord.userId },
-        data: { passwordHash, updatedAt: new Date() }
+      // Find and validate token
+      const tokenRecord = await prisma.token.findFirst({
+        where: {
+          token,
+          type: TokenType.PASSWORD_RESET,
+          isUsed: false,
+          expiresAt: { gt: new Date() }
+        },
+        include: { user: true }
       });
 
-      await tx.token.update({
-        where: { id: tokenRecord.id },
-        data: { isUsed: true }
-      });
-    });
+      if (!tokenRecord) {
+        throw new InvalidTokenError('Token không hợp lệ hoặc đã hết hạn');
+      }
 
-    return { message: 'Password has been reset successfully. You can now login with your new password.' };
+      // Hash new password
+      const passwordHash = await bcrypt.hash(newPassword, 12);
+
+      // Update user password and mark token as used
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: tokenRecord.userId },
+          data: { passwordHash, updatedAt: new Date() }
+        });
+
+        await tx.token.update({
+          where: { id: tokenRecord.id },
+          data: { isUsed: true }
+        });
+      });
+
+      return { message: 'Password has been reset successfully. You can now login with your new password.' };
+    } catch (error) {
+      appLogger.error('Password reset failed', {
+        error: error instanceof Error ? error.message : String(error),
+        tokenProvided: !!token
+      });
+
+      // Re-throw known custom errors
+      if (error instanceof PasswordsDoNotMatchError || 
+          error instanceof WeakPasswordError ||
+          error instanceof InvalidTokenError) {
+        throw error;
+      }
+
+      // Wrap unknown errors
+      throw new PasswordResetFailedError({
+        originalError: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   async verifyEmail(token: string) {
@@ -471,28 +499,11 @@ class AuthService {
   }
 
   private generateAccessToken(userId: string, plan: SubscriptionPlan): string {
-    const payload = {
-      userId,
-      plan,
-      type: 'access'
-    };
-
-    const secret = process.env.JWT_SECRET || 'fallback-secret-key';
-    const expiresIn = process.env.JWT_EXPIRES_IN || '15m';
-
-    return (jwt.sign as any)(payload, secret, { expiresIn });
+    return JWTUtils.generateAccessToken(userId, plan);
   }
 
   private generateRefreshToken(userId: string): string {
-    const payload = {
-      userId,
-      type: 'refresh'
-    };
-
-    const secret = process.env.JWT_SECRET || 'fallback-secret-key';
-    const expiresIn = process.env.JWT_REFRESH_EXPIRES_IN || '30d';
-
-    return (jwt.sign as any)(payload, secret, { expiresIn });
+    return JWTUtils.generateRefreshToken(userId, 'FREE'); // Plan is not needed for refresh tokens
   }
 }
 
