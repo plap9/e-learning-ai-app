@@ -1,81 +1,48 @@
 import { Request, Response } from 'express';
 import { authService } from '../services/auth.service';
+import { asyncHandler } from '../middlewares/error.middleware';
+import { appLogger } from '../utils/logger';
+import { 
+  validateRequest,
+  registerSchema,
+  loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  verifyEmailSchema,
+  resendVerificationSchema
+} from '../validators/auth.validators';
 
 class AuthController {
-  async register(req: Request, res: Response) {
-    try {
-      const { email, password, confirmPassword, firstName, lastName } = req.body;
+  register = asyncHandler(async (req: Request, res: Response) => {
+    const { email, password, confirmPassword, firstName, lastName } = req.body;
+    const requestLogger = (req as any).logger;
 
-      const result = await authService.registerUser({
-        email,
-        password,
-        confirmPassword,
-        firstName,
-        lastName
-      });
+    requestLogger.info('User registration attempt', {
+      email: email?.replace(/(?<=.{2}).(?=.*@)/g, '*')
+    });
 
-      return res.status(201).json(result);
-    } catch (error: any) {
-      console.error('Registration error:', error);
-      
-      // Handle specific errors
-      switch (error.message) {
-        case 'EMAIL_ALREADY_EXISTS':
-          return res.status(409).json({
-            error: 'Email đã tồn tại',
-            message: 'Email này đã được sử dụng để đăng ký tài khoản khác.'
-          });
-        
-        case 'MISSING_REQUIRED_FIELDS':
-          return res.status(400).json({
-            error: 'Thiếu thông tin bắt buộc',
-            message: 'Vui lòng điền đầy đủ email, mật khẩu, họ và tên.'
-          });
-        
-        case 'INVALID_EMAIL_FORMAT':
-          return res.status(400).json({
-            error: 'Email không hợp lệ',
-            message: 'Vui lòng nhập đúng định dạng email.'
-          });
-        
-        case 'PASSWORDS_DO_NOT_MATCH':
-          return res.status(400).json({
-            error: 'Mật khẩu không khớp',
-            message: 'Mật khẩu xác nhận không trùng với mật khẩu đã nhập.'
-          });
-        
-        case 'PASSWORD_TOO_SHORT':
-          return res.status(400).json({
-            error: 'Mật khẩu quá ngắn',
-            message: 'Mật khẩu phải có ít nhất 8 ký tự.'
-          });
-        
-        case 'PASSWORD_MISSING_UPPERCASE':
-          return res.status(400).json({
-            error: 'Mật khẩu không đủ mạnh',
-            message: 'Mật khẩu phải chứa ít nhất một chữ cái viết hoa.'
-          });
-        
-        case 'PASSWORD_MISSING_LOWERCASE':
-          return res.status(400).json({
-            error: 'Mật khẩu không đủ mạnh',
-            message: 'Mật khẩu phải chứa ít nhất một chữ cái viết thường.'
-          });
-        
-        case 'PASSWORD_MISSING_NUMBER':
-          return res.status(400).json({
-            error: 'Mật khẩu không đủ mạnh',
-            message: 'Mật khẩu phải chứa ít nhất một số.'
-          });
-        
-        default:
-          return res.status(500).json({
-            error: 'Lỗi hệ thống',
-            message: 'Đã xảy ra lỗi khi đăng ký tài khoản. Vui lòng thử lại sau.'
-          });
+    const result = await authService.registerUser({
+      email,
+      password,
+      confirmPassword,
+      firstName,
+      lastName
+    });
+
+    requestLogger.info('User registration successful', {
+      userId: result.userId,
+      email: email.replace(/(?<=.{2}).(?=.*@)/g, '*')
+    });
+
+    return res.status(201).json({
+      success: true,
+      data: result,
+      meta: {
+        timestamp: new Date().toISOString(),
+        requestId: req.headers['x-request-id']
       }
-    }
-  }
+    });
+  });
 
   async login(req: Request, res: Response) {
     try {

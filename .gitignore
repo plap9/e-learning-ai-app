@@ -121,6 +121,9 @@ Thumbs.db
 *.swo
 *~
 
+# Cursor IDE local files
+.cursor/
+
 # Compiled output
 dist/
 build/

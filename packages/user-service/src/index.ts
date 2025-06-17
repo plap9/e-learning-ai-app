@@ -1,11 +1,17 @@
 import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import morgan from 'morgan';
 import compression from 'compression';
-import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+
+// Import custom middleware and utilities
+import { appLogger, requestLoggingMiddleware } from './utils/logger';
+import { errorHandler, notFoundHandler, handleUnhandledRejection, handleUncaughtException } from './middlewares/error.middleware';
+import { detectApiVersion, validateVersion, versionBasedContentNegotiation } from './middlewares/versioning.middleware';
+import { generalRateLimit } from './middlewares/rate-limit.middleware';
+
+// Import routes
 import authRoutes from './routes/auth.routes';
 import { userRoutes } from './routes/user.routes';
 
@@ -13,30 +19,72 @@ import { userRoutes } from './routes/user.routes';
 dotenv.config();
 
 // Initialize Prisma Client
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error']
+});
 
 const app: Application = express();
 const PORT = process.env.PORT || 3001;
 
+// Trust proxy for accurate IP addresses
+app.set('trust proxy', 1);
+
 // Security middleware
-app.use(helmet());
-app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:19006'],
-  credentials: true
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  }
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
-});
-app.use(limiter);
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:19006'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Version', 'API-Version', 'X-Request-ID']
+}));
 
-// Middleware
-app.use(compression());
-app.use(morgan('combined'));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+// Compression middleware
+app.use(compression({
+  level: 6,
+  threshold: 1024,
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    return compression.filter(req, res);
+  }
+}));
+
+// Request parsing middleware
+app.use(express.json({ 
+  limit: '10mb',
+  strict: true
+}));
+app.use(express.urlencoded({ 
+  extended: true,
+  limit: '10mb'
+}));
+
+// Request logging middleware (must be before other middlewares)
+app.use(requestLoggingMiddleware);
+
+// API versioning middleware
+app.use(detectApiVersion);
+app.use(validateVersion);
+app.use(versionBasedContentNegotiation);
+
+// Rate limiting middleware
+app.use(generalRateLimit);
 
 // Health check with database connection
 app.get('/health', async (req, res) => {

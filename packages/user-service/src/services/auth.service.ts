@@ -3,6 +3,24 @@ import bcrypt from 'bcryptjs';
 import jwt, { SignOptions } from 'jsonwebtoken';
 import crypto from 'crypto';
 import { emailService } from './email.service';
+import {
+  EmailAlreadyExistsError,
+  InvalidCredentialsError,
+  EmailNotVerifiedError,
+  TokenExpiredError,
+  InvalidTokenError,
+  UserNotFoundError,
+  UserAccountDeactivatedError,
+  PasswordsDoNotMatchError,
+  PasswordTooShortError,
+  PasswordMissingRequirementsError,
+  MissingRequiredFieldsError,
+  InvalidEmailFormatError,
+  SystemError,
+  ExternalServiceError
+} from '../utils/errors';
+import { appLogger } from '../utils/logger';
+import { validateEmail, validatePassword } from '../validators/auth.validators';
 
 const prisma = new PrismaClient();
 
@@ -21,19 +39,25 @@ interface RegisterUserResponse {
 
 class AuthService {
   async registerUser(userData: RegisterUserInput): Promise<RegisterUserResponse> {
+    const startTime = Date.now();
     const { email, password, confirmPassword, firstName, lastName } = userData;
 
-    // 1. Validate input data
-    this.validateRegistrationData(userData);
+    try {
+      // 1. Validate input data
+      this.validateRegistrationData(userData);
 
-    // 2. Check if email already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
+      // 2. Check if email already exists
+      const existingUser = await prisma.user.findUnique({
+        where: { email: email.toLowerCase() }
+      });
 
-    if (existingUser) {
-      throw new Error('EMAIL_ALREADY_EXISTS');
-    }
+      if (existingUser) {
+        appLogger.warn('Registration attempt with existing email', {
+          email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+          duration: Date.now() - startTime
+        });
+        throw new EmailAlreadyExistsError(email);
+      }
 
     // 3. Hash password
     const saltRounds = 12;
@@ -98,39 +122,97 @@ class AuthService {
       // The user can request a new verification email later
     }
 
-    return {
-      message: 'Registration successful. Please check your email to verify your account.',
-      userId: result.user.id
-    };
+      // Log successful registration
+      appLogger.info('User registration successful', {
+        userId: result.user.id,
+        email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+        duration: Date.now() - startTime
+      });
+
+      return {
+        message: 'Registration successful. Please check your email to verify your account.',
+        userId: result.user.id
+      };
+    } catch (error) {
+      appLogger.error('Registration failed', {
+        email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime
+      });
+      
+      // Re-throw known errors
+      if (error instanceof EmailAlreadyExistsError || 
+          error instanceof MissingRequiredFieldsError ||
+          error instanceof InvalidEmailFormatError ||
+          error instanceof PasswordTooShortError ||
+          error instanceof PasswordMissingRequirementsError ||
+          error instanceof PasswordsDoNotMatchError) {
+        throw error;
+      }
+      
+      // Wrap unknown errors
+      throw new SystemError(
+        'User registration failed due to system error',
+        'SYSTEM_1001_REGISTRATION_FAILED',
+        { originalError: error instanceof Error ? error.message : String(error) }
+      );
+    }
   }
 
   async loginUser(email: string, password: string) {
-    // Find user by email
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-      include: {
-        subscriptions: {
-          where: { status: SubscriptionStatus.ACTIVE },
-          orderBy: { createdAt: 'desc' },
-          take: 1
+    const startTime = Date.now();
+    
+    try {
+      // Find user by email
+      const user = await prisma.user.findUnique({
+        where: { email: email.toLowerCase() },
+        include: {
+          subscriptions: {
+            where: { status: SubscriptionStatus.ACTIVE },
+            orderBy: { createdAt: 'desc' },
+            take: 1
+          }
         }
+      });
+
+      if (!user) {
+        appLogger.warn('Login attempt with non-existent email', {
+          email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+          duration: Date.now() - startTime
+        });
+        throw new InvalidCredentialsError(email);
       }
-    });
 
-    if (!user) {
-      throw new Error('INVALID_CREDENTIALS');
-    }
+      // Check if user account is active
+      if (!user.isActive) {
+        appLogger.warn('Login attempt with deactivated account', {
+          email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+          userId: user.id,
+          duration: Date.now() - startTime
+        });
+        throw new UserAccountDeactivatedError(user.id);
+      }
 
-    // Check password
-    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
-    if (!isPasswordValid) {
-      throw new Error('INVALID_CREDENTIALS');
-    }
+      // Check password
+      const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+      if (!isPasswordValid) {
+        appLogger.warn('Login attempt with invalid password', {
+          email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+          userId: user.id,
+          duration: Date.now() - startTime
+        });
+        throw new InvalidCredentialsError(email);
+      }
 
-    // Check if user is verified (optional - depends on your strategy)
-    if (!user.isVerified) {
-      throw new Error('EMAIL_NOT_VERIFIED');
-    }
+      // Check if user is verified (optional - depends on your strategy)
+      if (!user.isVerified) {
+        appLogger.warn('Login attempt with unverified email', {
+          email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+          userId: user.id,
+          duration: Date.now() - startTime
+        });
+        throw new EmailNotVerifiedError(email);
+      }
 
     // Update last login
     await prisma.user.update({
@@ -152,17 +234,45 @@ class AuthService {
       }
     });
 
-    return {
-      accessToken,
-      refreshToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        currentPlan: user.subscriptions[0]?.plan || SubscriptionPlan.FREE
+      // Log successful login
+      appLogger.info('User login successful', {
+        userId: user.id,
+        email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+        duration: Date.now() - startTime
+      });
+
+      return {
+        accessToken,
+        refreshToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          currentPlan: user.subscriptions[0]?.plan || SubscriptionPlan.FREE
+        }
+      };
+    } catch (error) {
+      appLogger.error('Login failed', {
+        email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime
+      });
+      
+      // Re-throw known errors
+      if (error instanceof InvalidCredentialsError || 
+          error instanceof EmailNotVerifiedError ||
+          error instanceof UserAccountDeactivatedError) {
+        throw error;
       }
-    };
+      
+      // Wrap unknown errors
+      throw new SystemError(
+        'User login failed due to system error',
+        'SYSTEM_1002_LOGIN_FAILED',
+        { originalError: error instanceof Error ? error.message : String(error) }
+      );
+    }
   }
 
   async forgotPassword(email: string) {
@@ -327,19 +437,25 @@ class AuthService {
     const { email, password, confirmPassword, firstName, lastName } = data;
 
     // Check required fields
-    if (!email || !password || !confirmPassword || !firstName || !lastName) {
-      throw new Error('MISSING_REQUIRED_FIELDS');
+    const missingFields: string[] = [];
+    if (!email) missingFields.push('email');
+    if (!password) missingFields.push('password');
+    if (!confirmPassword) missingFields.push('confirmPassword');
+    if (!firstName) missingFields.push('firstName');
+    if (!lastName) missingFields.push('lastName');
+    
+    if (missingFields.length > 0) {
+      throw new MissingRequiredFieldsError(missingFields);
     }
 
     // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      throw new Error('INVALID_EMAIL_FORMAT');
+    if (!validateEmail(email)) {
+      throw new InvalidEmailFormatError(email);
     }
 
     // Check passwords match
     if (password !== confirmPassword) {
-      throw new Error('PASSWORDS_DO_NOT_MATCH');
+      throw new PasswordsDoNotMatchError();
     }
 
     // Validate password strength
@@ -347,23 +463,10 @@ class AuthService {
   }
 
   private validatePassword(password: string) {
-    if (password.length < 8) {
-      throw new Error('PASSWORD_TOO_SHORT');
-    }
-
-    // Check for at least one uppercase letter
-    if (!/[A-Z]/.test(password)) {
-      throw new Error('PASSWORD_MISSING_UPPERCASE');
-    }
-
-    // Check for at least one lowercase letter
-    if (!/[a-z]/.test(password)) {
-      throw new Error('PASSWORD_MISSING_LOWERCASE');
-    }
-
-    // Check for at least one number
-    if (!/[0-9]/.test(password)) {
-      throw new Error('PASSWORD_MISSING_NUMBER');
+    const validation = validatePassword(password);
+    
+    if (!validation.isValid) {
+      throw new PasswordMissingRequirementsError(validation.errors);
     }
   }
 

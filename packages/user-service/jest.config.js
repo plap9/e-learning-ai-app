@@ -19,5 +19,12 @@ module.exports = {
   },
   passWithNoTests: true,
   testTimeout: 30000,
-  verbose: true
+  verbose: true,
+  globals: {
+    'ts-jest': {
+      tsconfig: {
+        types: ['jest', 'node']
+      }
+    }
+  }
 }; 
