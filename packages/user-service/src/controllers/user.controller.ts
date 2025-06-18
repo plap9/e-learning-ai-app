@@ -1,13 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient, Prisma } from '@prisma/client';
 import rateLimit from 'express-rate-limit';
 import {
   AuthenticationError,
   ValidationError,
   UserNotFoundError,
   SystemError
-} from '../utils/errors';
+} from '../exceptions';
 import { appLogger as logger } from '../utils/logger';
+import { authConfig } from '../config/auth.config';
 import {
   extractInternalToken,
   verifyServicePermission,
@@ -22,9 +22,13 @@ import {
   validateUserId
 } from '../schemas/user.schemas';
 
-const prisma = new PrismaClient();
+// Import service layer for proper SoC
+import { userService } from '../services/user.service';
 
-// Rate limiting configurations
+// Type definitions
+import { AuthRequest, ApiResponse, RequestContext } from '../types/express';
+
+// Rate limiting configurations - following comprehensive rules
 export const profileUpdateRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5, // limit each user to 5 profile updates per window
@@ -61,19 +65,15 @@ const asyncHandler = (fn: (req: Request, res: Response, next: NextFunction) => P
     Promise.resolve(fn(req, res, next)).catch(next);
   };
 
-// Logger helper functions - match signatures from logger.ts
-const logAuth = (event: string, email?: string, userId?: string, success: boolean = true): void => {
-  logger.logAuth(event, email, userId, success);
-};
-
-const logSecurity = (event: string, severity: 'low' | 'medium' | 'high', details: Record<string, unknown>): void => {
-  logger.logSecurity(event, severity, details);
-};
-
 // Authentication middleware
 export const requireAuth = (req: Request, res: Response, next: NextFunction): void => {
   if (!req.user?.id) {
-    logAuth('Authentication failed - No user in request', undefined, undefined, false);
+    logger.logSecurity('Authentication failed - No user in request', 'medium', {
+      ip: req.ip,
+      url: req.originalUrl,
+      method: req.method,
+      requestId: (req as AuthRequest).context?.requestId || 'unknown'
+    });
     
     throw new AuthenticationError(
       'User not authenticated',
@@ -81,12 +81,16 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction): vo
     );
   }
   
-  logAuth('Authentication successful', undefined, req.user.id, true);
+  logger.logSecurity('Authentication successful', 'low', {
+    userId: req.user.id,
+    ip: req.ip,
+    requestId: (req as AuthRequest).context?.requestId || 'unknown'
+  });
   
   next();
 };
 
-// Internal service authentication middleware
+// Internal service authentication middleware - enhanced according to comprehensive rules
 export const requireInternalAuth = (requiredService?: string, requiredPermission?: string) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     const correlationId = req.headers['x-request-id'] as string || 'unknown';
@@ -96,11 +100,12 @@ export const requireInternalAuth = (requiredService?: string, requiredPermission
       
       // Check specific service if required
       if (requiredService && payload.service !== requiredService) {
-        logSecurity('Internal service access denied - wrong service', 'high', {
+        logger.logSecurity('Internal service access denied - wrong service', 'high', {
           correlationId,
           requestedService: requiredService,
           actualService: payload.service,
-          ip: req.ip
+          ip: req.ip,
+          url: req.originalUrl
         });
         
         throw new AuthenticationError(
@@ -111,12 +116,13 @@ export const requireInternalAuth = (requiredService?: string, requiredPermission
       
       // Check permission if required
       if (requiredPermission && !verifyServicePermission(payload, requiredPermission)) {
-        logSecurity('Internal service access denied - insufficient permissions', 'high', {
+        logger.logSecurity('Internal service access denied - insufficient permissions', 'high', {
           correlationId,
           service: payload.service,
           requiredPermission,
           userPermissions: payload.permissions,
-          ip: req.ip
+          ip: req.ip,
+          url: req.originalUrl
         });
         
         throw new AuthenticationError(
@@ -125,7 +131,7 @@ export const requireInternalAuth = (requiredService?: string, requiredPermission
         );
       }
       
-      logSecurity('Internal service authentication successful', 'low', {
+      logger.logSecurity('Internal service authentication successful', 'low', {
         correlationId,
         service: payload.service,
         permissions: payload.permissions,
@@ -139,7 +145,8 @@ export const requireInternalAuth = (requiredService?: string, requiredPermission
       logger.error('Internal service authentication failed', {
         correlationId,
         error: error instanceof Error ? error.message : 'Unknown error',
-        ip: req.ip
+        ip: req.ip,
+        stack: error instanceof Error ? error.stack : undefined
       });
       
       next(error);
@@ -147,466 +154,475 @@ export const requireInternalAuth = (requiredService?: string, requiredPermission
   };
 };
 
-// Response formatting utilities
-interface ApiResponse<T = unknown> {
-  success: boolean;
-  data: T;
-  message?: string;
-  meta: {
-    timestamp: string;
-    requestId?: string;
-    [key: string]: unknown;
-  };
-}
-
-const formatSuccessResponse = <T = unknown>(
-  data: T, 
-  message?: string, 
-  meta?: Record<string, unknown>
-): ApiResponse<T> => {
-  const correlationId = meta?.correlationId;
-  const response: ApiResponse<T> = {
-    success: true,
-    data,
-    message,
-    meta: {
-      timestamp: new Date().toISOString(),
-      requestId: correlationId as string | undefined,
-      ...meta
-    }
-  };
-  
-  // Remove undefined values
-  if (response.message === undefined) {
-    delete response.message;
-  }
-  
-  return response;
-};
-
-// Database error mapping
-const handleDatabaseError = (error: unknown, operation: string): never => {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    switch (error.code) {
-      case 'P2002':
-        throw new ValidationError(
-          'Dữ liệu đã tồn tại',
-          'VALIDATION_4007_DUPLICATE_DATA'
-        );
-      case 'P2025':
-        throw new UserNotFoundError('User not found');
-      case 'P2003':
-        throw new ValidationError(
-          'Dữ liệu tham chiếu không hợp lệ',
-          'VALIDATION_4008_FOREIGN_KEY_CONSTRAINT'
-        );
-      default:
-        logger.error('Database error', {
-          operation,
-          errorCode: error.code,
-          errorMessage: error.message
-        });
-        throw new SystemError(
-          'Database operation failed',
-          'SYSTEM_1005_DATABASE_ERROR'
-        );
-    }
-  }
-  
-  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
-    logger.error('Unknown database error', {
-      operation,
-      errorMessage: error.message
-    });
-    throw new SystemError(
-      'Unknown database error',
-      'SYSTEM_1006_UNKNOWN_DATABASE_ERROR'
-    );
-  }
-  
-  throw error;
-};
-
+/**
+ * User Controller Class
+ * Tuân thủ SoC/SRP - chỉ xử lý HTTP request/response logic
+ * Business logic được delegate hoàn toàn cho service layer
+ */
 class UserController {
-  // Internal API for API Gateway - get user by ID
+  // Utility function for consistent success responses theo comprehensive rules
+  private formatSuccessResponse<T>(
+    data: T, 
+    message?: string, 
+    req?: Request
+  ): ApiResponse<T> {
+    const authReq = req as AuthRequest;
+    const duration = authReq?.context ? Date.now() - authReq.context.startTime : undefined;
+    
+    return {
+      success: true,
+      message,
+      data,
+      meta: {
+        timestamp: new Date().toISOString(),
+        requestId: authReq?.context?.requestId,
+        version: authReq?.context?.apiVersion || authConfig.DEFAULT_API_VERSION,
+        ...(duration !== undefined && { duration }),
+        service: 'user-service',
+        environment: process.env.NODE_ENV || 'development'
+      }
+    };
+  }
+
+  // Enhanced logging with structured format
+  private logUserEvent(
+    event: string,
+    req: Request,
+    details: Record<string, any> = {},
+    severity: 'low' | 'medium' | 'high' = 'low'
+  ): void {
+    const authReq = req as AuthRequest;
+    
+    logger.logSecurity(event, severity, {
+      event,
+      ...details,
+      userId: req.user?.id,
+      ip: authReq.context?.ip || req.ip,
+      userAgent: authReq.context?.userAgent || req.headers['user-agent'],
+      requestId: authReq.context?.requestId || 'unknown',
+      url: req.originalUrl,
+      method: req.method,
+      duration: authReq.context ? Date.now() - authReq.context.startTime : undefined,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  // Performance monitoring
+  private checkPerformanceThresholds(req: Request): void {
+    const authReq = req as AuthRequest;
+    if (!authReq.context) return;
+    
+    const duration = Date.now() - authReq.context.startTime;
+    
+    if (duration > authConfig.PERFORMANCE_THRESHOLDS.ERROR) {
+      logger.error('Performance threshold exceeded', {
+        duration,
+        threshold: authConfig.PERFORMANCE_THRESHOLDS.ERROR,
+        requestId: authReq.context.requestId,
+        url: req.originalUrl,
+        method: req.method
+      });
+    } else if (duration > authConfig.PERFORMANCE_THRESHOLDS.WARNING) {
+      logger.warn('Performance threshold warning', {
+        duration,
+        threshold: authConfig.PERFORMANCE_THRESHOLDS.WARNING,
+        requestId: authReq.context.requestId,
+        url: req.originalUrl,
+        method: req.method
+      });
+    }
+  }
+
+  // Request size limiting middleware
+  private requestSizeLimit = (maxSize?: number) => {
+    return (req: Request, res: Response, next: NextFunction): void => {
+      const contentLength = req.headers['content-length'];
+      const limit = maxSize || authConfig.DEFAULT_REQUEST_SIZE_LIMIT;
+      
+      if (contentLength && parseInt(contentLength) > limit) {
+        const error = new ValidationError(
+          'Request body quá lớn',
+          'VALIDATION_4005_REQUEST_TOO_LARGE'
+        );
+        throw error;
+      }
+      next();
+    };
+  };
+
+  // Internal API for API Gateway - get user by ID (tuân thủ SoC)
   public getUserByIdEndpoint = [
     internalApiRateLimit,
     requireInternalAuth('api-gateway', 'user:read'),
     validateUserId,
+    this.requestSizeLimit(),
     asyncHandler(this.getUserById.bind(this))
   ];
 
   async getUserById(req: Request, res: Response, next: NextFunction): Promise<void> {
     const startTime = Date.now();
-    const correlationId = req.headers['x-request-id'] as string || 'unknown';
     const { userId } = req.params;
     
+    this.logUserEvent('get_user_by_id_attempt', req, {
+      targetUserId: userId,
+      service: (req as Request & { internalService?: { service: string } }).internalService?.service
+    });
+
     try {
       const sanitizedUserId = sanitizeUserId(userId || '');
       
-      logger.info('Fetching user by ID', {
-        correlationId,
-        userId: sanitizedUserId,
-        service: (req as Request & { internalService?: { service: string } }).internalService?.service
-      });
+      // Delegate to service layer (SoC principle)
+      const userData = await userService.getUserById(sanitizedUserId);
 
-      const user = await prisma.user.findUnique({
-        where: { id: sanitizedUserId },
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          isVerified: true,
-          isActive: true,
-          subscriptions: {
-            where: { status: 'ACTIVE' },
-            orderBy: { createdAt: 'desc' },
-            take: 1,
-            select: { plan: true }
-          }
-        }
-      });
+      this.checkPerformanceThresholds(req);
 
-      if (!user) {
-        throw new UserNotFoundError(sanitizedUserId);
-      }
-
-      const responseData = {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        isVerified: user.isVerified,
-        isActive: user.isActive,
-        currentPlan: user.subscriptions[0]?.plan || 'FREE'
-      };
-
-      logger.info('User fetch completed', {
-        correlationId,
-        userId: sanitizedUserId,
+      this.logUserEvent('get_user_by_id_success', req, {
+        targetUserId: sanitizedUserId,
         duration: Date.now() - startTime
       });
 
-      res.json(formatSuccessResponse(
-        responseData,
+      res.json(this.formatSuccessResponse(
+        userData,
         'User data retrieved successfully',
-        { correlationId, duration: Date.now() - startTime }
+        req
       ));
 
-    } catch (error: unknown) {
-      handleDatabaseError(error, 'getUserById');
+    } catch (error) {
+      this.logUserEvent('get_user_by_id_failed', req, {
+        targetUserId: userId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        duration: Date.now() - startTime
+      }, 'medium');
+
+      throw error; // Let global error handler deal with it
     }
   }
 
-  // Get current user profile
+  // Get current user profile (tuân thủ SoC)
   public getProfileEndpoint = [
     requireAuth,
+    this.requestSizeLimit(),
     asyncHandler(this.getProfile.bind(this))
   ];
 
   async getProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
     const startTime = Date.now();
-    const correlationId = req.headers['x-request-id'] as string || 'unknown';
     const userId = req.user!.id;
     
+    this.logUserEvent('get_profile_attempt', req, {
+      userId
+    });
+
     try {
-      logger.info('Fetching user profile', {
-        correlationId,
-        userId
-      });
+      // Delegate to service layer
+      const userProfile = await userService.getUserProfile(userId);
 
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        include: {
-          profile: true,
-          subscriptions: {
-            where: { status: 'ACTIVE' },
-            orderBy: { createdAt: 'desc' },
-            take: 1
-          }
-        }
-      });
+      this.checkPerformanceThresholds(req);
 
-      if (!user) {
-        throw new UserNotFoundError(userId);
-      }
-
-      const responseData = {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        avatar: user.avatar,
-        dateOfBirth: user.dateOfBirth,
-        gender: user.gender,
-        phoneNumber: user.phoneNumber,
-        language: user.language,
-        timezone: user.timezone,
-        isVerified: user.isVerified,
-        currentPlan: user.subscriptions[0]?.plan || 'FREE',
-        profile: user.profile
-      };
-
-      logger.info('Profile fetch completed', {
-        correlationId,
+      this.logUserEvent('get_profile_success', req, {
         userId,
         duration: Date.now() - startTime
       });
 
-      res.json(formatSuccessResponse(
-        responseData,
+      res.json(this.formatSuccessResponse(
+        userProfile,
         'Profile retrieved successfully',
-        { correlationId, duration: Date.now() - startTime }
+        req
       ));
 
-    } catch (error: unknown) {
-      handleDatabaseError(error, 'getProfile');
+    } catch (error) {
+      this.logUserEvent('get_profile_failed', req, {
+        userId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        duration: Date.now() - startTime
+      }, 'medium');
+
+      throw error;
     }
   }
 
-  // Update user profile
+  // Update user profile (tuân thủ SoC)
   public updateProfileEndpoint = [
     profileUpdateRateLimit,
     requireAuth,
     validateUpdateProfile,
+    this.requestSizeLimit(),
     asyncHandler(this.updateProfile.bind(this))
   ];
 
   async updateProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
     const startTime = Date.now();
-    const correlationId = req.headers['x-request-id'] as string || 'unknown';
     const userId = req.user!.id;
     
+    this.logUserEvent('update_profile_attempt', req, {
+      userId,
+      fieldsToUpdate: Object.keys(req.body)
+    });
+
     try {
       // Sanitize input data
       const sanitizedData = sanitizeInput(req.body);
       
-      logger.info('Updating user profile', {
-        correlationId,
+      // Delegate to service layer (SoC principle)
+      const updatedUser = await userService.updateUserProfile(userId, sanitizedData);
+
+      this.checkPerformanceThresholds(req);
+
+      this.logUserEvent('update_profile_success', req, {
         userId,
-        fieldsToUpdate: Object.keys(sanitizedData)
-      });
-
-      const {
-        firstName,
-        lastName,
-        avatar,
-        dateOfBirth,
-        gender,
-        phoneNumber,
-        language,
-        timezone
-      } = sanitizedData;
-
-      const updatedUser = await prisma.user.update({
-        where: { id: userId },
-        data: {
-          firstName,
-          lastName,
-          avatar,
-          dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
-          gender,
-          phoneNumber,
-          language,
-          timezone,
-          updatedAt: new Date()
-        }
-      });
-
-      const responseData = {
-        id: updatedUser.id,
-        email: updatedUser.email,
-        firstName: updatedUser.firstName,
-        lastName: updatedUser.lastName,
-        avatar: updatedUser.avatar,
-        dateOfBirth: updatedUser.dateOfBirth,
-        gender: updatedUser.gender,
-        phoneNumber: updatedUser.phoneNumber,
-        language: updatedUser.language,
-        timezone: updatedUser.timezone
-      };
-
-      logger.info('Profile update completed', {
-        correlationId,
-        userId,
+        fieldsUpdated: Object.keys(sanitizedData),
         duration: Date.now() - startTime
       });
 
-      res.json(formatSuccessResponse(
-        responseData,
+      res.json(this.formatSuccessResponse(
+        updatedUser,
         'Profile updated successfully',
-        { correlationId, duration: Date.now() - startTime }
+        req
       ));
 
-    } catch (error: unknown) {
-      handleDatabaseError(error, 'updateProfile');
+    } catch (error) {
+      this.logUserEvent('update_profile_failed', req, {
+        userId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        duration: Date.now() - startTime
+      }, 'medium');
+
+      throw error;
     }
   }
 
-  // Get user preferences
+  // Get user preferences (tuân thủ SoC)
   public getPreferencesEndpoint = [
     requireAuth,
+    this.requestSizeLimit(),
     asyncHandler(this.getPreferences.bind(this))
   ];
 
   async getPreferences(req: Request, res: Response, next: NextFunction): Promise<void> {
     const startTime = Date.now();
-    const correlationId = req.headers['x-request-id'] as string || 'unknown';
     const userId = req.user!.id;
     
+    this.logUserEvent('get_preferences_attempt', req, {
+      userId
+    });
+
     try {
-      logger.info('Fetching user preferences', {
-        correlationId,
-        userId
-      });
+      // Delegate to service layer
+      const userPreferences = await userService.getUserPreferences(userId);
 
-      const userProfile = await prisma.userProfile.findUnique({
-        where: { userId }
-      });
+      this.checkPerformanceThresholds(req);
 
-      if (!userProfile) {
-        // Create default profile if doesn't exist
-        logger.info('Creating default user profile', {
-          correlationId,
-          userId
-        });
-        
-        const newProfile = await prisma.userProfile.create({
-          data: {
-            userId,
-            currentLevel: 'BEGINNER',
-            targetLevel: 'INTERMEDIATE'
-          }
-        });
-        
-        logger.info('Default profile created', {
-          correlationId,
-          userId,
-          duration: Date.now() - startTime
-        });
-        
-        res.json(formatSuccessResponse(
-          newProfile,
-          'Default preferences created',
-          { correlationId, duration: Date.now() - startTime }
-        ));
-        return;
-      }
-
-      logger.info('Preferences fetch completed', {
-        correlationId,
+      this.logUserEvent('get_preferences_success', req, {
         userId,
         duration: Date.now() - startTime
       });
 
-      res.json(formatSuccessResponse(
-        userProfile,
-        'Preferences retrieved successfully',
-        { correlationId, duration: Date.now() - startTime }
+      res.json(this.formatSuccessResponse(
+        userPreferences,
+        userPreferences ? 'Preferences retrieved successfully' : 'Default preferences created',
+        req
       ));
 
-    } catch (error: unknown) {
-      handleDatabaseError(error, 'getPreferences');
+    } catch (error) {
+      this.logUserEvent('get_preferences_failed', req, {
+        userId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        duration: Date.now() - startTime
+      }, 'medium');
+
+      throw error;
     }
   }
 
-  // Update user preferences
+  // Update user preferences (tuân thủ SoC)
   public updatePreferencesEndpoint = [
     profileUpdateRateLimit,
     requireAuth,
     validateUpdatePreferences,
+    this.requestSizeLimit(),
     asyncHandler(this.updatePreferences.bind(this))
   ];
 
   async updatePreferences(req: Request, res: Response, next: NextFunction): Promise<void> {
     const startTime = Date.now();
-    const correlationId = req.headers['x-request-id'] as string || 'unknown';
     const userId = req.user!.id;
     
+    this.logUserEvent('update_preferences_attempt', req, {
+      userId,
+      fieldsToUpdate: Object.keys(req.body)
+    });
+
     try {
       // Sanitize input data
       const sanitizedData = sanitizeInput(req.body);
       
-      logger.info('Updating user preferences', {
-        correlationId,
+      // Delegate to service layer (SoC principle)
+      const updatedPreferences = await userService.updateUserPreferences(userId, sanitizedData);
+
+      this.checkPerformanceThresholds(req);
+
+      this.logUserEvent('update_preferences_success', req, {
         userId,
-        fieldsToUpdate: Object.keys(sanitizedData)
+        fieldsUpdated: Object.keys(sanitizedData),
+        duration: Date.now() - startTime
       });
 
-      const {
-        currentLevel,
-        targetLevel,
-        learningGoals,
-        interests,
-        preferredTopics,
-        studyTimePerDay,
-        reminderTime,
-        isPublic,
-        bio,
-        visualLearning,
-        auditoryLearning,
-        kinestheticLearning,
-        weeklyGoalMinutes,
-        monthlyGoalMinutes
-      } = sanitizedData;
+      res.json(this.formatSuccessResponse(
+        updatedPreferences,
+        'Preferences updated successfully',
+        req
+      ));
 
-      const updatedProfile = await prisma.userProfile.upsert({
-        where: { userId },
-        update: {
-          currentLevel,
-          targetLevel,
-          learningGoals,
-          interests,
-          preferredTopics,
-          studyTimePerDay,
-          reminderTime,
-          isPublic,
-          bio,
-          visualLearning,
-          auditoryLearning,
-          kinestheticLearning,
-          weeklyGoalMinutes: weeklyGoalMinutes || 150,
-          monthlyGoalMinutes: monthlyGoalMinutes || 600,
-          updatedAt: new Date()
-        },
-        create: {
-          userId,
-          currentLevel: currentLevel || 'BEGINNER',
-          targetLevel: targetLevel || 'INTERMEDIATE',
-          learningGoals,
-          interests,
-          preferredTopics,
-          studyTimePerDay,
-          reminderTime,
-          isPublic: isPublic || false,
-          bio,
-          visualLearning: visualLearning || false,
-          auditoryLearning: auditoryLearning || false,
-          kinestheticLearning: kinestheticLearning || false,
-          weeklyGoalMinutes: weeklyGoalMinutes || 150,
-          monthlyGoalMinutes: monthlyGoalMinutes || 600
-        }
-      });
+    } catch (error) {
+      this.logUserEvent('update_preferences_failed', req, {
+        userId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        duration: Date.now() - startTime
+      }, 'medium');
 
-      logger.info('Preferences update completed', {
-        correlationId,
+      throw error;
+    }
+  }
+
+  // Get user statistics (new endpoint for comprehensive monitoring)
+  public getUserStatsEndpoint = [
+    requireAuth,
+    this.requestSizeLimit(),
+    asyncHandler(this.getUserStats.bind(this))
+  ];
+
+  async getUserStats(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const startTime = Date.now();
+    const userId = req.user!.id;
+    
+    this.logUserEvent('get_user_stats_attempt', req, {
+      userId
+    });
+
+    try {
+      // Delegate to service layer
+      const userStats = await userService.getUserStatistics(userId);
+
+      this.checkPerformanceThresholds(req);
+
+      this.logUserEvent('get_user_stats_success', req, {
         userId,
         duration: Date.now() - startTime
       });
 
-      res.json(formatSuccessResponse(
-        updatedProfile,
-        'Preferences updated successfully',
-        { correlationId, duration: Date.now() - startTime }
+      res.json(this.formatSuccessResponse(
+        userStats,
+        'User statistics retrieved successfully',
+        req
       ));
 
-    } catch (error: unknown) {
-      handleDatabaseError(error, 'updatePreferences');
+    } catch (error) {
+      this.logUserEvent('get_user_stats_failed', req, {
+        userId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        duration: Date.now() - startTime
+      }, 'medium');
+
+      throw error;
+    }
+  }
+
+  // Deactivate user account (enhanced security endpoint)
+  public deactivateAccountEndpoint = [
+    profileUpdateRateLimit,
+    requireAuth,
+    this.requestSizeLimit(),
+    asyncHandler(this.deactivateAccount.bind(this))
+  ];
+
+  async deactivateAccount(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const startTime = Date.now();
+    const userId = req.user!.id;
+    
+    this.logUserEvent('deactivate_account_attempt', req, {
+      userId
+    }, 'high');
+
+    try {
+      // Delegate to service layer
+      await userService.deactivateUserAccount(userId);
+
+      this.checkPerformanceThresholds(req);
+
+      this.logUserEvent('deactivate_account_success', req, {
+        userId,
+        duration: Date.now() - startTime
+      }, 'high');
+
+      res.json(this.formatSuccessResponse(
+        { deactivated: true },
+        'Account deactivated successfully',
+        req
+      ));
+
+    } catch (error) {
+      this.logUserEvent('deactivate_account_failed', req, {
+        userId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        duration: Date.now() - startTime
+      }, 'high');
+
+      throw error;
+    }
+  }
+
+  // Health check endpoint với enhanced monitoring
+  public healthEndpoint = [
+    asyncHandler(this.health.bind(this))
+  ];
+
+  async health(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const startTime = Date.now();
+    
+    try {
+      // Enhanced health data according to comprehensive rules
+      const healthData = {
+        status: 'healthy',
+        service: 'user-service',
+        component: 'user-controller',
+        timestamp: new Date().toISOString(),
+        version: process.env.APP_VERSION || '1.0.0',
+        uptime: process.uptime(),
+        memory: {
+          used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+          total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+          percentage: Math.round((process.memoryUsage().heapUsed / process.memoryUsage().heapTotal) * 100)
+        },
+        environment: process.env.NODE_ENV || 'development',
+        requestId: (req as AuthRequest).context?.requestId,
+        duration: Date.now() - startTime,
+        checks: {
+          database: 'pending',
+          redis: 'pending',
+          user_service: 'healthy',
+          auth_middleware: 'healthy'
+        }
+      };
+
+      logger.info('User controller health check completed', {
+        requestId: (req as AuthRequest).context?.requestId,
+        duration: healthData.duration,
+        status: healthData.status
+      });
+
+      res.status(200).json(healthData);
+
+    } catch (error) {
+      logger.error('User controller health check failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        requestId: (req as AuthRequest).context?.requestId,
+        duration: Date.now() - startTime
+      });
+
+      throw error;
     }
   }
 }
 
-// Request interface is already defined in auth middleware
-
+// Export singleton instance theo comprehensive rules
 export default new UserController(); 

@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authConfig } from '../config/auth.config';
-import { ErrorHandler } from '../utils/error-handler.utils';
+import { ErrorHandler } from './error.middleware';
 import { appLogger as logger } from '../utils/logger';
-import { AuthenticationError } from '../utils/errors';
+import { AuthenticationError } from '../exceptions';
 import { setContextUserId, getRequestContext } from './request-context.middleware';
 import { AuthRequest, UserPayload, RequestContext } from '../types/express';
 import { JWTUtils } from '../utils/jwt.utils';

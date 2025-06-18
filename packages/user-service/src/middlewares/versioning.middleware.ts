@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { ValidationError } from '../utils/errors';
+import { ValidationError } from '../exceptions';
 import { appLogger } from '../utils/logger';
 
 // Supported API versions

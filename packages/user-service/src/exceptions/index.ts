@@ -1,1 +1,2 @@
-export * from './base.error'; 
+// Export all error classes and utilities
+export * from './errors'; 

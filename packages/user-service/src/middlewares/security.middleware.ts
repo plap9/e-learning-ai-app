@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { authConfig } from '../config/auth.config';
-import { ValidationError } from '../utils/errors';
+import { ValidationError } from '../exceptions';
 import { appLogger as logger } from '../utils/logger';
 import { requestContextMiddleware, getRequestContext } from './request-context.middleware';
 import { loggerMiddleware } from './logger.middleware';

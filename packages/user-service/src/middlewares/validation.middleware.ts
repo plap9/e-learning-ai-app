@@ -1,49 +1,178 @@
 import { Request, Response, NextFunction } from 'express';
-import { ValidationError } from '../utils/errors';
-
-// Type-only import để tránh lỗi runtime
-type ZodSchema = any; // Will be replaced with proper Zod schema
+import { z, ZodError, ZodSchema } from 'zod';
+import { ValidationError } from '../exceptions';
 
 /**
- * Validation middleware for request validation using Zod
- * Follows comprehensive rules for input validation
+ * Enhanced Validation Middleware using Zod
+ * Follows comprehensive rules: SoC, single responsibility
+ * Only handles schema validation, no business logic
  */
-export const validateRequest = (schema: ZodSchema) => {
+
+// Request validation locations
+export enum ValidateLocation {
+  BODY = 'body',
+  QUERY = 'query',
+  PARAMS = 'params',
+  HEADERS = 'headers'
+}
+
+// Validation configuration interface
+interface ValidationConfig {
+  location: ValidateLocation;
+  schema: ZodSchema<any>;
+  stripUnknown?: boolean;
+  allowPartial?: boolean;
+}
+
+/**
+ * Universal Zod validation middleware
+ * Single responsibility: validate request data against Zod schemas
+ */
+export const validateRequest = (config: ValidationConfig | ZodSchema<any>) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     try {
-      // Parse and validate request data
-      const validationResult = schema.safeParse({
-        body: req.body,
-        query: req.query,
-        params: req.params
-      });
+      // Handle both simple schema and full config
+      const validationConfig: ValidationConfig = config instanceof z.ZodType 
+        ? { location: ValidateLocation.BODY, schema: config }
+        : config;
+
+      const { location, schema, stripUnknown = true, allowPartial = false } = validationConfig;
+
+      // Get data to validate based on location
+      const dataToValidate = req[location];
+
+      // Apply partial validation if requested  
+      const validationSchema = allowPartial && 'partial' in schema ? (schema as any).partial() : schema;
+
+      // Parse and validate data
+      const validationResult = validationSchema.safeParse(dataToValidate);
 
       if (!validationResult.success) {
-        const errors = validationResult.error.errors.map((err: any) => ({
+        const zodError = validationResult.error as ZodError;
+        
+        // Format Zod errors to our standard format
+        const formattedErrors = zodError.errors.map(err => ({
           field: err.path.join('.'),
           message: err.message,
-          code: err.code
+          code: err.code,
+          value: err.path.reduce((obj, key) => obj?.[key], dataToValidate)
         }));
 
-        const errorMessage = errors.map((err: any) => `${err.field}: ${err.message}`).join(', ');
+        const errorMessage = formattedErrors
+          .map(err => `${err.field}: ${err.message}`)
+          .join(', ');
         
         throw new ValidationError(
           errorMessage,
-          'VALIDATION_4000_REQUEST_VALIDATION_FAILED',
+          'VALIDATION_4000_SCHEMA_VALIDATION_FAILED',
           'request',
-          errors
+          formattedErrors
         );
       }
 
-      // Apply validated data back to request
-      if (validationResult.data.body) {
-        req.body = validationResult.data.body;
+      // Apply validated data back to request (with unknown fields stripped if configured)
+      if (stripUnknown) {
+        req[location] = validationResult.data;
       }
-      if (validationResult.data.query) {
-        req.query = validationResult.data.query;
+
+      next();
+    } catch (error) {
+      // Pass any validation errors to error handler
+      next(error);
+    }
+  };
+};
+
+/**
+ * Validate request body against Zod schema
+ */
+export const validateBody = (schema: ZodSchema<any>, options?: { stripUnknown?: boolean; allowPartial?: boolean }) => {
+  return validateRequest({
+    location: ValidateLocation.BODY,
+    schema,
+    stripUnknown: options?.stripUnknown ?? true,
+    allowPartial: options?.allowPartial ?? false
+  });
+};
+
+/**
+ * Validate query parameters against Zod schema
+ */
+export const validateQuery = (schema: ZodSchema<any>, options?: { stripUnknown?: boolean; allowPartial?: boolean }) => {
+  return validateRequest({
+    location: ValidateLocation.QUERY,
+    schema,
+    stripUnknown: options?.stripUnknown ?? true,
+    allowPartial: options?.allowPartial ?? false
+  });
+};
+
+/**
+ * Validate URL parameters against Zod schema
+ */
+export const validateParams = (schema: ZodSchema<any>, options?: { stripUnknown?: boolean; allowPartial?: boolean }) => {
+  return validateRequest({
+    location: ValidateLocation.PARAMS,
+    schema,
+    stripUnknown: options?.stripUnknown ?? true,
+    allowPartial: options?.allowPartial ?? false
+  });
+};
+
+/**
+ * Validate headers against Zod schema
+ */
+export const validateHeaders = (schema: ZodSchema<any>, options?: { stripUnknown?: boolean; allowPartial?: boolean }) => {
+  return validateRequest({
+    location: ValidateLocation.HEADERS,
+    schema,
+    stripUnknown: options?.stripUnknown ?? true,
+    allowPartial: options?.allowPartial ?? false
+  });
+};
+
+/**
+ * Validate multiple locations in a single middleware
+ */
+export const validateMultiple = (configs: ValidationConfig[]) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    try {
+      const allErrors: any[] = [];
+
+      // Validate each configuration
+      for (const config of configs) {
+        const { location, schema, allowPartial = false } = config;
+        const dataToValidate = req[location];
+                 const validationSchema = allowPartial && 'partial' in schema ? (schema as any).partial() : schema;
+        const result = validationSchema.safeParse(dataToValidate);
+
+        if (!result.success) {
+                   const formattedErrors = result.error.errors.map((err: any) => ({
+           location,
+           field: err.path.join('.'),
+           message: err.message,
+           code: err.code,
+           value: err.path.reduce((obj: any, key: any) => obj?.[key], dataToValidate)
+          }));
+          
+          allErrors.push(...formattedErrors);
+        } else if (config.stripUnknown) {
+          // Apply validated data back
+          req[location] = result.data;
+        }
       }
-      if (validationResult.data.params) {
-        req.params = validationResult.data.params;
+
+      if (allErrors.length > 0) {
+        const errorMessage = allErrors
+          .map(err => `${err.location}.${err.field}: ${err.message}`)
+          .join(', ');
+        
+        throw new ValidationError(
+          errorMessage,
+          'VALIDATION_4000_MULTI_LOCATION_VALIDATION_FAILED',
+          'request',
+          allErrors
+        );
       }
 
       next();
@@ -54,222 +183,88 @@ export const validateRequest = (schema: ZodSchema) => {
 };
 
 /**
- * Simple validation functions for immediate use
- * These can be used until Zod schemas are fully implemented
+ * Optional validation - continues even if validation fails but logs issues
+ * Useful for backwards compatibility or gradual migration
  */
-export const validateEmail = (email: string): boolean => {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
-};
+export const validateOptional = (config: ValidationConfig | ZodSchema<any>) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    try {
+      const validationConfig: ValidationConfig = config instanceof z.ZodType 
+        ? { location: ValidateLocation.BODY, schema: config }
+        : config;
 
-export const validatePassword = (password: string): { isValid: boolean; errors: string[] } => {
-  const errors: string[] = [];
-  
-  if (password.length < 8) {
-    errors.push('Mật khẩu phải có ít nhất 8 ký tự');
-  }
-  
-  if (!/(?=.*[a-z])/.test(password)) {
-    errors.push('Mật khẩu phải có ít nhất 1 chữ thường');
-  }
-  
-  if (!/(?=.*[A-Z])/.test(password)) {
-    errors.push('Mật khẩu phải có ít nhất 1 chữ hoa');
-  }
-  
-  if (!/(?=.*\d)/.test(password)) {
-    errors.push('Mật khẩu phải có ít nhất 1 số');
-  }
-  
-  if (!/(?=.*[@$!%*?&])/.test(password)) {
-    errors.push('Mật khẩu phải có ít nhất 1 ký tự đặc biệt');
-  }
-  
-  return {
-    isValid: errors.length === 0,
-    errors
-  };
-};
+      const { location, schema } = validationConfig;
+      const dataToValidate = req[location];
+      const result = schema.safeParse(dataToValidate);
 
-export const validateName = (name: string): { isValid: boolean; errors: string[] } => {
-  const errors: string[] = [];
-  
-  if (!name || name.trim().length === 0) {
-    errors.push('Tên không được để trống');
-  }
-  
-  if (name.length > 50) {
-    errors.push('Tên không được vượt quá 50 ký tự');
-  }
-  
-  if (!/^[a-zA-ZÀ-ỹ\s]+$/.test(name)) {
-    errors.push('Tên chỉ được chứa chữ cái và khoảng trắng');
-  }
-  
-  return {
-    isValid: errors.length === 0,
-    errors
+      if (!result.success) {
+        // Log validation issues but continue
+        console.warn(`Optional validation failed for ${location}:`, result.error.errors);
+        
+        // Optionally add validation warnings to request context
+        (req as any).validationWarnings = result.error.errors;
+      } else if (validationConfig.stripUnknown) {
+        req[location] = result.data;
+      }
+
+      next();
+    } catch (error) {
+      // For optional validation, log error but continue
+      console.warn('Optional validation error:', error);
+      next();
+    }
   };
 };
 
 /**
- * Registration validation middleware
+ * Transform validation errors for consistent API responses
+ * This is a utility function, main error handling is in error.middleware.ts
  */
-export const validateRegistration = (req: Request, res: Response, next: NextFunction): void => {
-  try {
-    const { email, password, confirmPassword, firstName, lastName } = req.body;
-    const errors: string[] = [];
-
-    // Validate required fields
-    if (!email) errors.push('Email là bắt buộc');
-    if (!password) errors.push('Mật khẩu là bắt buộc');
-    if (!confirmPassword) errors.push('Xác nhận mật khẩu là bắt buộc');
-    if (!firstName) errors.push('Tên là bắt buộc');
-    if (!lastName) errors.push('Họ là bắt buộc');
-
-    // Validate email format
-    if (email && !validateEmail(email)) {
-      errors.push('Định dạng email không hợp lệ');
-    }
-
-    // Validate password
-    if (password) {
-      const passwordValidation = validatePassword(password);
-      if (!passwordValidation.isValid) {
-        errors.push(...passwordValidation.errors);
-      }
-    }
-
-    // Validate password confirmation
-    if (password && confirmPassword && password !== confirmPassword) {
-      errors.push('Mật khẩu xác nhận không trùng khớp');
-    }
-
-    // Validate names
-    if (firstName) {
-      const firstNameValidation = validateName(firstName);
-      if (!firstNameValidation.isValid) {
-        errors.push(...firstNameValidation.errors.map(err => `Tên: ${err}`));
-      }
-    }
-
-    if (lastName) {
-      const lastNameValidation = validateName(lastName);
-      if (!lastNameValidation.isValid) {
-        errors.push(...lastNameValidation.errors.map(err => `Họ: ${err}`));
-      }
-    }
-
-    if (errors.length > 0) {
-      throw new ValidationError(
-        errors.join(', '),
-        'VALIDATION_4001_REGISTRATION_VALIDATION_FAILED'
-      );
-    }
-
-    // Sanitize input
-    req.body.email = email.toLowerCase().trim();
-    req.body.firstName = firstName.trim();
-    req.body.lastName = lastName.trim();
-
-    next();
-  } catch (error) {
-    next(error);
-  }
+export const transformValidationError = (zodError: ZodError): any[] => {
+  return zodError.errors.map(err => ({
+    field: err.path.join('.'),
+    message: err.message,
+    code: err.code,
+    receivedValue: err.path.length > 0 ? 'hidden' : undefined // Don't expose values in prod
+  }));
 };
 
 /**
- * Login validation middleware
+ * Create a validation middleware that applies both schema validation and custom business rules
+ * Schema validation happens first, then custom rules
  */
-export const validateLogin = (req: Request, res: Response, next: NextFunction): void => {
-  try {
-    const { email, password } = req.body;
-    const errors: string[] = [];
-
-    if (!email) errors.push('Email là bắt buộc');
-    if (!password) errors.push('Mật khẩu là bắt buộc');
-
-    if (email && !validateEmail(email)) {
-      errors.push('Định dạng email không hợp lệ');
-    }
-
-    if (errors.length > 0) {
-      throw new ValidationError(
-        errors.join(', '),
-        'VALIDATION_4002_LOGIN_VALIDATION_FAILED'
-      );
-    }
-
-    // Sanitize input
-    req.body.email = email.toLowerCase().trim();
-
-    next();
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Forgot password validation middleware
- */
-export const validateForgotPassword = (req: Request, res: Response, next: NextFunction): void => {
-  try {
-    const { email } = req.body;
-    const errors: string[] = [];
-
-    if (!email) errors.push('Email là bắt buộc');
-    if (email && !validateEmail(email)) {
-      errors.push('Định dạng email không hợp lệ');
-    }
-
-    if (errors.length > 0) {
-      throw new ValidationError(
-        errors.join(', '),
-        'VALIDATION_4003_FORGOT_PASSWORD_VALIDATION_FAILED'
-      );
-    }
-
-    // Sanitize input
-    req.body.email = email.toLowerCase().trim();
-
-    next();
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Reset password validation middleware
- */
-export const validateResetPassword = (req: Request, res: Response, next: NextFunction): void => {
-  try {
-    const { token, newPassword, confirmNewPassword } = req.body;
-    const errors: string[] = [];
-
-    if (!token) errors.push('Token là bắt buộc');
-    if (!newPassword) errors.push('Mật khẩu mới là bắt buộc');
-    if (!confirmNewPassword) errors.push('Xác nhận mật khẩu mới là bắt buộc');
-
-    if (newPassword) {
-      const passwordValidation = validatePassword(newPassword);
-      if (!passwordValidation.isValid) {
-        errors.push(...passwordValidation.errors);
+export const validateWithCustomRules = (
+  schema: ZodSchema<any>,
+  customValidator: (data: any, req: Request) => Promise<void> | void
+) => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      // First apply schema validation
+      const result = schema.safeParse(req.body);
+      
+      if (!result.success) {
+        const formattedErrors = transformValidationError(result.error);
+        const errorMessage = formattedErrors
+          .map(err => `${err.field}: ${err.message}`)
+          .join(', ');
+        
+        throw new ValidationError(
+          errorMessage,
+          'VALIDATION_4000_SCHEMA_VALIDATION_FAILED',
+          'request',
+          formattedErrors
+        );
       }
-    }
 
-    if (newPassword && confirmNewPassword && newPassword !== confirmNewPassword) {
-      errors.push('Mật khẩu xác nhận không trùng khớp');
-    }
+      // Apply validated data
+      req.body = result.data;
 
-    if (errors.length > 0) {
-      throw new ValidationError(
-        errors.join(', '),
-        'VALIDATION_4004_RESET_PASSWORD_VALIDATION_FAILED'
-      );
-    }
+      // Then apply custom business rules
+      await customValidator(result.data, req);
 
-    next();
-  } catch (error) {
-    next(error);
-  }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
 }; 

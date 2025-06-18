@@ -1,7 +1,7 @@
 import rateLimit from 'express-rate-limit';
 import { Request, Response } from 'express';
 import { createClient } from 'redis';
-import { RateLimitExceededError } from '../utils/errors';
+import { RateLimitExceededError } from '../exceptions';
 import { appLogger } from '../utils/logger';
 
 // Redis client for distributed rate limiting

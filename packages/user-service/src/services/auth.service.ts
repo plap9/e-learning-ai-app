@@ -17,9 +17,9 @@ import {
   InvalidTokenError,
   TokenExpiredError,
   UserNotFoundError
-} from '../utils/errors';
+} from '../exceptions';
 import { appLogger } from '../utils/logger';
-import { validateEmail, validatePassword } from '../middlewares/validation.middleware';
+// Note: validation logic moved to schemas, will be implemented with Zod
 import { JWTUtils } from '../utils/jwt.utils';
 
 // Service DTOs
@@ -550,7 +550,9 @@ export class AuthService implements IAuthService {
       throw new MissingRequiredFieldsError(['email', 'password', 'confirmPassword', 'firstName', 'lastName'].filter(field => !data[field as keyof RegisterUserInput]));
     }
 
-    if (!validateEmail(email)) {
+    // Temporary email validation until Zod schemas are implemented
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
       throw new InvalidEmailFormatError(email);
     }
 
@@ -562,13 +564,31 @@ export class AuthService implements IAuthService {
   }
 
   private validatePasswordStrength(password: string): void {
-    const validation = validatePassword(password);
-    if (!validation.isValid) {
-      if (password.length < 8) {
-        throw new PasswordTooShortError();
-      } else {
-        throw new PasswordMissingRequirementsError(validation.errors);
-      }
+    // Temporary password validation until Zod schemas are implemented
+    const errors: string[] = [];
+    
+    if (password.length < 8) {
+      throw new PasswordTooShortError();
+    }
+    
+    if (!/(?=.*[a-z])/.test(password)) {
+      errors.push('Mật khẩu phải có ít nhất 1 chữ thường');
+    }
+    
+    if (!/(?=.*[A-Z])/.test(password)) {
+      errors.push('Mật khẩu phải có ít nhất 1 chữ hoa');
+    }
+    
+    if (!/(?=.*\d)/.test(password)) {
+      errors.push('Mật khẩu phải có ít nhất 1 số');
+    }
+    
+    if (!/(?=.*[@$!%*?&])/.test(password)) {
+      errors.push('Mật khẩu phải có ít nhất 1 ký tự đặc biệt');
+    }
+    
+    if (errors.length > 0) {
+      throw new PasswordMissingRequirementsError(errors);
     }
   }
 
