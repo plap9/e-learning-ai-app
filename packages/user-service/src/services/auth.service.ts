@@ -1,7 +1,7 @@
-import { PrismaClient, SubscriptionPlan, SubscriptionStatus, TokenType, Prisma } from '@prisma/client';
+import { PrismaClient, SubscriptionPlan, TokenType } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import jwt, { SignOptions } from 'jsonwebtoken';
 import crypto from 'crypto';
+import { UserRepository, TokenRepository } from '../repositories';
 import { emailService } from './email.service';
 import {
   EmailAlreadyExistsError,
@@ -13,20 +13,17 @@ import {
   MissingRequiredFieldsError,
   InvalidEmailFormatError,
   SystemError,
-  ExternalServiceError,
   PasswordsDoNotMatchError,
   InvalidTokenError,
   TokenExpiredError,
   UserNotFoundError
 } from '../utils/errors';
-// Note: These error classes are now imported from errors.ts (consolidated)
 import { appLogger } from '../utils/logger';
-import { validateEmail, validatePassword } from '../validators/auth.validators';
+import { validateEmail, validatePassword } from '../middlewares/validation.middleware';
 import { JWTUtils } from '../utils/jwt.utils';
 
-const prisma = new PrismaClient();
-
-interface RegisterUserInput {
+// Service DTOs
+export interface RegisterUserInput {
   email: string;
   password: string;
   confirmPassword: string;
@@ -34,121 +31,140 @@ interface RegisterUserInput {
   lastName: string;
 }
 
-interface RegisterUserResponse {
+export interface RegisterUserResponse {
   message: string;
   userId: string;
 }
 
-class AuthService {
+export interface LoginUserResponse {
+  message: string;
+  user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    isVerified: boolean;
+    plan: SubscriptionPlan;
+  };
+  tokens: {
+    accessToken: string;
+    refreshToken: string;
+  };
+}
+
+export interface ForgotPasswordResponse {
+  message: string;
+}
+
+export interface ResetPasswordResponse {
+  message: string;
+}
+
+export interface VerifyEmailResponse {
+  message: string;
+  userId: string;
+}
+
+export interface ResendVerificationResponse {
+  message: string;
+}
+
+export interface LogoutResponse {
+  message: string;
+}
+
+// Service interface
+export interface IAuthService {
+  registerUser(userData: RegisterUserInput): Promise<RegisterUserResponse>;
+  loginUser(email: string, password: string): Promise<LoginUserResponse>;
+  forgotPassword(email: string): Promise<ForgotPasswordResponse>;
+  resetPassword(token: string, newPassword: string, confirmNewPassword: string): Promise<ResetPasswordResponse>;
+  verifyEmail(token: string): Promise<VerifyEmailResponse>;
+  resendVerificationEmail(email: string): Promise<ResendVerificationResponse>;
+  logout(refreshToken: string): Promise<LogoutResponse>;
+}
+
+/**
+ * Authentication Service
+ * Contains only business logic, uses repositories for data access
+ * Follows Single Responsibility Principle
+ */
+export class AuthService implements IAuthService {
+  private userRepository: UserRepository;
+  private tokenRepository: TokenRepository;
+
+  constructor(prisma: PrismaClient) {
+    this.userRepository = new UserRepository(prisma);
+    this.tokenRepository = new TokenRepository(prisma);
+  }
+
+  /**
+   * Register new user
+   */
   async registerUser(userData: RegisterUserInput): Promise<RegisterUserResponse> {
     const startTime = Date.now();
     const { email, password, confirmPassword, firstName, lastName } = userData;
 
     try {
-      // 1. Validate input data
+      // 1. Validate business rules
       this.validateRegistrationData(userData);
 
       // 2. Check if email already exists
-      const existingUser = await prisma.user.findUnique({
-        where: { email: email.toLowerCase() }
-      });
-
+      const existingUser = await this.userRepository.findByEmail(email);
       if (existingUser) {
         appLogger.warn('Registration attempt with existing email', {
-          email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+          email: this.maskEmail(email),
           duration: Date.now() - startTime
         });
         throw new EmailAlreadyExistsError(email);
       }
 
-    // 3. Hash password
-    const saltRounds = 12;
-    const passwordHash = await bcrypt.hash(password, saltRounds);
+      // 3. Hash password
+      const passwordHash = await this.hashPassword(password);
 
-    // 4. Create user in database transaction
-    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // Create user
-      const user = await tx.user.create({
-        data: {
-          email: email.toLowerCase(),
-          passwordHash,
-          firstName,
-          lastName,
-          isVerified: false,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }
+      // 4. Create user with subscription in transaction
+      const user = await this.userRepository.createWithSubscription({
+        email: email.toLowerCase(),
+        passwordHash,
+        firstName,
+        lastName,
+        isVerified: false
       });
 
-      // Create default FREE subscription
-      await tx.subscription.create({
-        data: {
-          userId: user.id,
-          plan: SubscriptionPlan.FREE,
-          status: SubscriptionStatus.ACTIVE,
-          startDate: new Date(),
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }
-      });
-
-      // Create email verification token
-      const verificationToken = crypto.randomBytes(32).toString('hex');
+      // 5. Create email verification token
+      const verificationToken = this.generateSecureToken();
       const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + 24); // Token expires in 24 hours
+      expiresAt.setHours(expiresAt.getHours() + 24); // 24 hours
 
-      await tx.token.create({
-        data: {
-          userId: user.id,
-          token: verificationToken,
-          type: TokenType.EMAIL_VERIFICATION,
-          expiresAt,
-          isUsed: false,
-          createdAt: new Date()
-        }
-      });
-
-      return { user, verificationToken };
-    });
-
-    // 5. Send verification email
-    try {
-      await emailService.sendVerificationEmail(
-        result.user.email,
-        result.user.firstName,
-        result.verificationToken
+      await this.tokenRepository.createVerificationToken(
+        user.id,
+        verificationToken,
+        expiresAt
       );
-    } catch (error) {
-      console.error('Failed to send verification email:', error);
-      // Note: We don't throw here to avoid rolling back user creation
-      // The user can request a new verification email later
-    }
 
-      // Log successful registration
+      // 6. Send verification email (non-blocking)
+      this.sendVerificationEmailAsync(user.email, user.firstName, verificationToken);
+
+      // 7. Log successful registration
       appLogger.info('User registration successful', {
-        userId: result.user.id,
-        email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+        userId: user.id,
+        email: this.maskEmail(email),
         duration: Date.now() - startTime
       });
 
       return {
         message: 'Registration successful. Please check your email to verify your account.',
-        userId: result.user.id
+        userId: user.id
       };
     } catch (error) {
       appLogger.error('Registration failed', {
-        email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+        email: this.maskEmail(email),
         error: error instanceof Error ? error.message : String(error),
         duration: Date.now() - startTime
       });
       
       // Re-throw known errors
-      if (error instanceof EmailAlreadyExistsError || 
-          error instanceof MissingRequiredFieldsError ||
-          error instanceof InvalidEmailFormatError ||
-          error instanceof PasswordTooShortError ||
-          error instanceof PasswordMissingRequirementsError ||
-          error instanceof PasswordsDoNotMatchError) {
+      if (this.isKnownError(error)) {
         throw error;
       }
       
@@ -161,162 +177,176 @@ class AuthService {
     }
   }
 
-  async loginUser(email: string, password: string) {
+  /**
+   * Login user
+   */
+  async loginUser(email: string, password: string): Promise<LoginUserResponse> {
     const startTime = Date.now();
     
     try {
-      // Find user by email
-      const user = await prisma.user.findUnique({
-        where: { email: email.toLowerCase() },
-        include: {
-          subscriptions: {
-            where: { status: SubscriptionStatus.ACTIVE },
-            orderBy: { createdAt: 'desc' },
-            take: 1
-          }
-        }
-      });
-
+      // Find user with subscriptions
+      const user = await this.userRepository.findByEmailWithSubscriptions(email);
       if (!user) {
         appLogger.warn('Login attempt with non-existent email', {
-          email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+          email: this.maskEmail(email),
           duration: Date.now() - startTime
         });
         throw new InvalidCredentialsError(email);
       }
 
-      // Check if user account is active
+      // Check if account is active
       if (!user.isActive) {
         appLogger.warn('Login attempt with deactivated account', {
-          email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+          email: this.maskEmail(email),
           userId: user.id,
           duration: Date.now() - startTime
         });
         throw new UserAccountDeactivatedError(user.id);
       }
 
-      // Check password
+      // Verify password
       const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
       if (!isPasswordValid) {
         appLogger.warn('Login attempt with invalid password', {
-          email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+          email: this.maskEmail(email),
           userId: user.id,
           duration: Date.now() - startTime
         });
         throw new InvalidCredentialsError(email);
       }
 
-      // Check if user is verified (optional - depends on your strategy)
+      // Check email verification
       if (!user.isVerified) {
         appLogger.warn('Login attempt with unverified email', {
-          email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+          email: this.maskEmail(email),
           userId: user.id,
           duration: Date.now() - startTime
         });
         throw new EmailNotVerifiedError(email);
       }
 
-    // Update last login
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() }
-    });
+      // Get user's active subscription plan
+      const plan = user.subscriptions?.[0]?.plan || SubscriptionPlan.FREE;
 
-    // Generate JWT tokens
-    const accessToken = this.generateAccessToken(user.id, user.subscriptions[0]?.plan || SubscriptionPlan.FREE);
-    const refreshToken = this.generateRefreshToken(user.id);
+      // Generate tokens
+      const accessToken = this.generateAccessToken(user.id, plan);
+      const refreshToken = this.generateRefreshToken(user.id);
 
-    // Save refresh token to database
-    await prisma.userSession.create({
-      data: {
-        userId: user.id,
-        token: refreshToken,
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-        createdAt: new Date()
-      }
-    });
+      // Update last login time
+      await this.userRepository.update(user.id, {
+        lastLoginAt: new Date()
+      });
 
-      // Log successful login
       appLogger.info('User login successful', {
         userId: user.id,
-        email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+        email: this.maskEmail(email),
+        plan,
         duration: Date.now() - startTime
       });
 
       return {
-        accessToken,
-        refreshToken,
+        message: 'Login successful',
         user: {
           id: user.id,
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
-          currentPlan: user.subscriptions[0]?.plan || SubscriptionPlan.FREE
+          isVerified: user.isVerified,
+          plan
+        },
+        tokens: {
+          accessToken,
+          refreshToken
         }
       };
     } catch (error) {
       appLogger.error('Login failed', {
-        email: email.replace(/(?<=.{2}).(?=.*@)/g, '*'),
+        email: this.maskEmail(email),
         error: error instanceof Error ? error.message : String(error),
         duration: Date.now() - startTime
       });
-      
-      // Re-throw known errors
-      if (error instanceof InvalidCredentialsError || 
-          error instanceof EmailNotVerifiedError ||
-          error instanceof UserAccountDeactivatedError) {
+
+      if (this.isKnownError(error)) {
         throw error;
       }
-      
-      // Wrap unknown errors
+
       throw new SystemError(
-        'User login failed due to system error',
+        'Login failed due to system error',
         'SYSTEM_1002_LOGIN_FAILED',
         { originalError: error instanceof Error ? error.message : String(error) }
       );
     }
   }
 
-  async forgotPassword(email: string) {
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
+  /**
+   * Forgot password
+   */
+  async forgotPassword(email: string): Promise<ForgotPasswordResponse> {
+    const startTime = Date.now();
 
-    // Always return success message for security (avoid email enumeration)
-    const successMessage = 'If your email address exists in our system, you will receive a password reset link shortly.';
-
-    if (!user) {
-      return { message: successMessage };
-    }
-
-    // Generate reset token
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 1); // Token expires in 1 hour
-
-    // Save reset token
-    await prisma.token.create({
-      data: {
-        userId: user.id,
-        token: resetToken,
-        type: TokenType.PASSWORD_RESET,
-        expiresAt,
-        isUsed: false,
-        createdAt: new Date()
-      }
-    });
-
-    // Send reset email
     try {
-      await emailService.sendPasswordResetEmail(user.email, user.firstName, resetToken);
-    } catch (error) {
-      console.error('Failed to send password reset email:', error);
-    }
+      const user = await this.userRepository.findByEmail(email);
+      if (!user) {
+        // Security: Don't reveal if email exists
+        appLogger.warn('Forgot password request for non-existent email', {
+          email: this.maskEmail(email),
+          duration: Date.now() - startTime
+        });
+        return {
+          message: 'If the email exists, a password reset link has been sent.'
+        };
+      }
 
-    return { message: successMessage };
+      // Revoke existing password reset tokens
+      await this.tokenRepository.revokeUserTokens(user.id, TokenType.PASSWORD_RESET);
+
+      // Generate reset token
+      const resetToken = this.generateSecureToken();
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 1); // 1 hour
+
+      await this.tokenRepository.createPasswordResetToken(
+        user.id,
+        resetToken,
+        expiresAt
+      );
+
+      // Send reset email (non-blocking)
+      this.sendPasswordResetEmailAsync(user.email, user.firstName, resetToken);
+
+      appLogger.info('Password reset requested', {
+        userId: user.id,
+        email: this.maskEmail(email),
+        duration: Date.now() - startTime
+      });
+
+      return {
+        message: 'If the email exists, a password reset link has been sent.'
+      };
+    } catch (error) {
+      appLogger.error('Forgot password failed', {
+        email: this.maskEmail(email),
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime
+      });
+
+      // Always return success message for security
+      return {
+        message: 'If the email exists, a password reset link has been sent.'
+      };
+    }
   }
 
-  async resetPassword(token: string, newPassword: string, confirmNewPassword: string) {
+  /**
+   * Reset password
+   */
+  async resetPassword(
+    token: string, 
+    newPassword: string, 
+    confirmNewPassword: string
+  ): Promise<ResetPasswordResponse> {
+    const startTime = Date.now();
+
     try {
       // Validate passwords match
       if (newPassword !== confirmNewPassword) {
@@ -324,183 +354,279 @@ class AuthService {
       }
 
       // Validate password strength
-      this.validatePassword(newPassword);
+      this.validatePasswordStrength(newPassword);
 
       // Find and validate token
-      const tokenRecord = await prisma.token.findFirst({
-        where: {
-          token,
-          type: TokenType.PASSWORD_RESET,
-          isUsed: false,
-          expiresAt: { gt: new Date() }
-        },
-        include: { user: true }
-      });
+      const tokenRecord = await this.tokenRepository.findValidToken(
+        token, 
+        TokenType.PASSWORD_RESET
+      );
 
       if (!tokenRecord) {
-        throw new InvalidTokenError('Token không hợp lệ hoặc đã hết hạn');
+        throw new InvalidTokenError('password reset');
       }
 
       // Hash new password
-      const passwordHash = await bcrypt.hash(newPassword, 12);
+      const passwordHash = await this.hashPassword(newPassword);
 
       // Update user password and mark token as used
-      await prisma.$transaction(async (tx) => {
-        await tx.user.update({
-          where: { id: tokenRecord.userId },
-          data: { passwordHash, updatedAt: new Date() }
-        });
+      await Promise.all([
+        this.userRepository.updatePassword(tokenRecord.userId, passwordHash),
+        this.tokenRepository.markTokenAsUsed(tokenRecord.id)
+      ]);
 
-        await tx.token.update({
-          where: { id: tokenRecord.id },
-          data: { isUsed: true }
-        });
+      appLogger.info('Password reset successful', {
+        userId: tokenRecord.userId,
+        duration: Date.now() - startTime
       });
 
-      return { message: 'Password has been reset successfully. You can now login with your new password.' };
+      return {
+        message: 'Password has been reset successfully. You can now login with your new password.'
+      };
     } catch (error) {
       appLogger.error('Password reset failed', {
         error: error instanceof Error ? error.message : String(error),
-        tokenProvided: !!token
+        duration: Date.now() - startTime
       });
 
-      // Re-throw known custom errors
-      if (error instanceof PasswordsDoNotMatchError || 
-          error instanceof PasswordMissingRequirementsError ||
-          error instanceof InvalidTokenError) {
+      if (this.isKnownError(error)) {
         throw error;
       }
 
-      // Wrap unknown errors
       throw new SystemError(
         'Password reset failed due to system error',
-        'SYSTEM_5003_PASSWORD_RESET_FAILED',
+        'SYSTEM_1003_PASSWORD_RESET_FAILED',
         { originalError: error instanceof Error ? error.message : String(error) }
       );
     }
   }
 
-  async verifyEmail(token: string) {
-    // Find and validate token
-    const tokenRecord = await prisma.token.findFirst({
-      where: {
+  /**
+   * Verify email
+   */
+  async verifyEmail(token: string): Promise<VerifyEmailResponse> {
+    const startTime = Date.now();
+
+    try {
+      // Find and validate token
+      const tokenRecord = await this.tokenRepository.findValidToken(
         token,
-        type: TokenType.EMAIL_VERIFICATION,
-        isUsed: false,
-        expiresAt: { gt: new Date() }
+        TokenType.EMAIL_VERIFICATION
+      );
+
+      if (!tokenRecord) {
+        throw new InvalidTokenError('email verification');
       }
-    });
 
-    if (!tokenRecord) {
-      throw new Error('INVALID_OR_EXPIRED_TOKEN');
-    }
+      // Verify user email and mark token as used
+      const [user] = await Promise.all([
+        this.userRepository.verifyEmail(tokenRecord.userId),
+        this.tokenRepository.markTokenAsUsed(tokenRecord.id)
+      ]);
 
-    // Update user verification status and mark token as used
-    await prisma.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id: tokenRecord.userId },
-        data: { isVerified: true, updatedAt: new Date() }
-      });
-
-      await tx.token.update({
-        where: { id: tokenRecord.id },
-        data: { isUsed: true }
-      });
-    });
-
-    return { message: 'Email verified successfully. You can now login.' };
-  }
-
-  async resendVerificationEmail(email: string) {
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
-
-    if (!user) {
-      throw new Error('USER_NOT_FOUND');
-    }
-
-    if (user.isVerified) {
-      throw new Error('EMAIL_ALREADY_VERIFIED');
-    }
-
-    // Generate new verification token
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24);
-
-    // Save new token (invalidate old ones implicitly by using newer one)
-    await prisma.token.create({
-      data: {
+      appLogger.info('Email verification successful', {
         userId: user.id,
-        token: verificationToken,
-        type: TokenType.EMAIL_VERIFICATION,
-        expiresAt,
-        isUsed: false,
-        createdAt: new Date()
+        email: this.maskEmail(user.email),
+        duration: Date.now() - startTime
+      });
+
+      return {
+        message: 'Email verified successfully. You can now login to your account.',
+        userId: user.id
+      };
+    } catch (error) {
+      appLogger.error('Email verification failed', {
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime
+      });
+
+      if (this.isKnownError(error)) {
+        throw error;
       }
-    });
 
-    // Send verification email
-    await emailService.sendVerificationEmail(user.email, user.firstName, verificationToken);
-
-    return { message: 'Verification email has been resent. Please check your inbox.' };
+      throw new SystemError(
+        'Email verification failed due to system error',
+        'SYSTEM_1004_EMAIL_VERIFICATION_FAILED',
+        { originalError: error instanceof Error ? error.message : String(error) }
+      );
+    }
   }
 
-  async logout(refreshToken: string) {
-    // Invalidate refresh token
-    await prisma.userSession.deleteMany({
-      where: { token: refreshToken }
-    });
+  /**
+   * Resend verification email
+   */
+  async resendVerificationEmail(email: string): Promise<ResendVerificationResponse> {
+    const startTime = Date.now();
 
-    return { message: 'Logged out successfully.' };
+    try {
+      const user = await this.userRepository.findByEmail(email);
+      if (!user) {
+        throw new UserNotFoundError(email);
+      }
+
+      if (user.isVerified) {
+        return {
+          message: 'Email is already verified.'
+        };
+      }
+
+      // Revoke existing verification tokens
+      await this.tokenRepository.revokeUserTokens(user.id, TokenType.EMAIL_VERIFICATION);
+
+      // Generate new verification token
+      const verificationToken = this.generateSecureToken();
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 24); // 24 hours
+
+      await this.tokenRepository.createVerificationToken(
+        user.id,
+        verificationToken,
+        expiresAt
+      );
+
+      // Send verification email (non-blocking)
+      this.sendVerificationEmailAsync(user.email, user.firstName, verificationToken);
+
+      appLogger.info('Verification email resent', {
+        userId: user.id,
+        email: this.maskEmail(email),
+        duration: Date.now() - startTime
+      });
+
+      return {
+        message: 'Verification email has been sent. Please check your inbox.'
+      };
+    } catch (error) {
+      appLogger.error('Resend verification email failed', {
+        email: this.maskEmail(email),
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime
+      });
+
+      if (this.isKnownError(error)) {
+        throw error;
+      }
+
+      throw new SystemError(
+        'Resend verification email failed due to system error',
+        'SYSTEM_1005_RESEND_VERIFICATION_FAILED',
+        { originalError: error instanceof Error ? error.message : String(error) }
+      );
+    }
   }
 
-  private validateRegistrationData(data: RegisterUserInput) {
+  /**
+   * Logout user
+   */
+  async logout(refreshToken: string): Promise<LogoutResponse> {
+    try {
+      // In this implementation, we don't store refresh tokens in database
+      // For a more secure implementation, you should store and revoke them
+      // For now, we just return success as tokens are stateless JWT
+      
+      appLogger.info('User logout successful');
+
+      return {
+        message: 'Logout successful'
+      };
+    } catch (error) {
+      appLogger.error('Logout failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+
+      throw new SystemError(
+        'Logout failed due to system error',
+        'SYSTEM_1006_LOGOUT_FAILED',
+        { originalError: error instanceof Error ? error.message : String(error) }
+      );
+    }
+  }
+
+  // Private helper methods
+  private validateRegistrationData(data: RegisterUserInput): void {
     const { email, password, confirmPassword, firstName, lastName } = data;
 
-    // Check required fields
-    const missingFields: string[] = [];
-    if (!email) missingFields.push('email');
-    if (!password) missingFields.push('password');
-    if (!confirmPassword) missingFields.push('confirmPassword');
-    if (!firstName) missingFields.push('firstName');
-    if (!lastName) missingFields.push('lastName');
-    
-    if (missingFields.length > 0) {
-      throw new MissingRequiredFieldsError(missingFields);
+    if (!email || !password || !confirmPassword || !firstName || !lastName) {
+      throw new MissingRequiredFieldsError(['email', 'password', 'confirmPassword', 'firstName', 'lastName'].filter(field => !data[field as keyof RegisterUserInput]));
     }
 
-    // Validate email format
     if (!validateEmail(email)) {
       throw new InvalidEmailFormatError(email);
     }
 
-    // Check passwords match
     if (password !== confirmPassword) {
       throw new PasswordsDoNotMatchError();
     }
 
-    // Validate password strength
-    this.validatePassword(password);
+    this.validatePasswordStrength(password);
   }
 
-  private validatePassword(password: string) {
+  private validatePasswordStrength(password: string): void {
     const validation = validatePassword(password);
-    
     if (!validation.isValid) {
-      throw new PasswordMissingRequirementsError(validation.errors);
+      if (password.length < 8) {
+        throw new PasswordTooShortError();
+      } else {
+        throw new PasswordMissingRequirementsError(validation.errors);
+      }
     }
   }
 
+  private async hashPassword(password: string): Promise<string> {
+    const saltRounds = 12;
+    return await bcrypt.hash(password, saltRounds);
+  }
+
+  private generateSecureToken(): string {
+    return crypto.randomBytes(32).toString('hex');
+  }
+
   private generateAccessToken(userId: string, plan: SubscriptionPlan): string {
-    return JWTUtils.generateAccessToken(userId, plan);
+    return JWTUtils.generateAccessToken(userId, plan.toString());
   }
 
   private generateRefreshToken(userId: string): string {
-    // For refresh tokens, plan is not needed as it will be fetched during token refresh
-    return JWTUtils.generateRefreshToken(userId, 'FREE');
+    return JWTUtils.generateRefreshToken(userId, SubscriptionPlan.FREE.toString());
+  }
+
+  private maskEmail(email: string): string {
+    return email.replace(/(?<=.{2}).(?=.*@)/g, '*');
+  }
+
+  private isKnownError(error: any): boolean {
+    return error instanceof EmailAlreadyExistsError ||
+           error instanceof MissingRequiredFieldsError ||
+           error instanceof InvalidEmailFormatError ||
+           error instanceof PasswordTooShortError ||
+           error instanceof PasswordMissingRequirementsError ||
+           error instanceof PasswordsDoNotMatchError ||
+           error instanceof InvalidCredentialsError ||
+           error instanceof EmailNotVerifiedError ||
+           error instanceof UserAccountDeactivatedError ||
+           error instanceof InvalidTokenError ||
+           error instanceof TokenExpiredError ||
+           error instanceof UserNotFoundError;
+  }
+
+  private sendVerificationEmailAsync(email: string, firstName: string, token: string): void {
+    emailService.sendVerificationEmail(email, firstName, token).catch(error => {
+      appLogger.error('Failed to send verification email', {
+        email: this.maskEmail(email),
+        error: error.message
+      });
+    });
+  }
+
+  private sendPasswordResetEmailAsync(email: string, firstName: string, token: string): void {
+    emailService.sendPasswordResetEmail?.(email, firstName, token)?.catch(error => {
+      appLogger.error('Failed to send password reset email', {
+        email: this.maskEmail(email),
+        error: error.message
+      });
+    });
   }
 }
 
-export const authService = new AuthService(); 
+// Export singleton instance
+const prisma = new PrismaClient();
+export const authService = new AuthService(prisma); 

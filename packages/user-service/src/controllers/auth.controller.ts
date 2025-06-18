@@ -5,14 +5,12 @@ import { appLogger as logger } from '../utils/logger';
 import { authConfig } from '../config/auth.config';
 import { ErrorHandler } from '../utils/error-handler.utils';
 import { healthCache as healthCacheUtil } from '../utils/cache.utils';
-import { 
+import {
   validateRegistration,
   validateLogin,
   validateForgotPassword,
-  validateResetPassword,
-  validateVerifyEmail,
-  validateResendVerification
-} from '../validators/auth.validators';
+  validateResetPassword
+} from '../middlewares/validation.middleware';
 import {
   authRateLimit,
   registrationRateLimit,
@@ -39,7 +37,7 @@ import {
   RequestContext 
 } from '../types/express';
 
-// Configuration constants (using centralized config)
+// Configuration constants
 const CONFIG = authConfig;
 
 // Error codes standardization
@@ -51,42 +49,6 @@ const AUTH_ERROR_CODES = {
   REQUEST_TOO_LARGE: 'AUTH_4005_REQUEST_TOO_LARGE',
   WEAK_PASSWORD: 'AUTH_4006_WEAK_PASSWORD'
 } as const;
-
-// Health endpoint now uses enhanced cache utility from cache.utils
-
-// Metrics collection utility
-class MetricsCollector {
-  private static recordMetric(operation: string, duration: number, success: boolean): void {
-    logger.info('Metrics recorded', {
-      operation: `auth.${operation}`,
-      duration,
-      success,
-      performanceLevel: duration > CONFIG.PERFORMANCE_THRESHOLDS.ERROR ? 'error' : 
-                       duration > CONFIG.PERFORMANCE_THRESHOLDS.WARNING ? 'warning' : 'good'
-    });
-    
-    // In production, send to monitoring service (Prometheus, etc.)
-    // metrics.increment(`auth.${operation}.count`);
-    // metrics.histogram(`auth.${operation}.duration`, duration);
-    // if (!success) metrics.increment(`auth.${operation}.errors`);
-  }
-
-  static trackOperation<T>(
-    operation: string, 
-    fn: () => Promise<T>
-  ): Promise<T> {
-    const startTime = Date.now();
-    return fn()
-      .then(result => {
-        this.recordMetric(operation, Date.now() - startTime, true);
-        return result;
-      })
-      .catch(error => {
-        this.recordMetric(operation, Date.now() - startTime, false);
-        throw error;
-      });
-  }
-}
 
 // Request size limiting middleware
 const requestSizeLimit = (maxSize: number = CONFIG.DEFAULT_REQUEST_SIZE_LIMIT) => {
@@ -103,9 +65,12 @@ const requestSizeLimit = (maxSize: number = CONFIG.DEFAULT_REQUEST_SIZE_LIMIT) =
   };
 };
 
-// Note: requestContextMiddleware is now handled in security middleware stack
-
-class AuthController {
+/**
+ * Authentication Controller
+ * Handles only HTTP request/response logic
+ * Follows Single Responsibility Principle
+ */
+export class AuthController {
   // Utility function for consistent success responses
   private formatSuccessResponse<T>(
     data: T, 
@@ -171,14 +136,12 @@ class AuthController {
         requestId: req.context?.requestId
       });
 
-      const result = await MetricsCollector.trackOperation('register', async () => {
-        return await authService.registerUser({
-          email,
-          password,
-          confirmPassword,
-          firstName,
-          lastName
-        });
+      const result = await authService.registerUser({
+        email,
+        password,
+        confirmPassword,
+        firstName,
+        lastName
       });
 
       const duration = req.context ? Date.now() - req.context.startTime : 0;
@@ -198,7 +161,11 @@ class AuthController {
       });
 
       return res.status(201).json(
-        this.formatSuccessResponse(result, 'Đăng ký thành công', req)
+        this.formatSuccessResponse(
+          { userId: result.userId },
+          result.message,
+          req
+        )
       );
     })
   ];
@@ -209,31 +176,29 @@ class AuthController {
     authRateLimit,
     validateLogin,
     asyncHandler(async (req: AuthRequest, res: Response) => {
-      const { email, password, rememberMe } = req.body;
+      const { email, password } = req.body;
       const requestLogger = req.logger || logger;
 
       requestLogger.info('User login attempt', {
         email: this.maskEmail(email),
         userAgent: req.context?.userAgent,
         ip: req.context?.ip,
-        rememberMe,
         requestId: req.context?.requestId
       });
 
-      const result = await MetricsCollector.trackOperation('login', async () => {
-        return await authService.loginUser(email, password);
-      });
+      const result = await authService.loginUser(email, password);
 
       const duration = req.context ? Date.now() - req.context.startTime : 0;
       requestLogger.info('User login successful', {
         userId: result.user.id,
         email: this.maskEmail(email),
+        plan: result.user.plan,
         duration,
         requestId: req.context?.requestId
       });
 
       // Log security event
-      logger.logSecurity('User login successful', 'low', {
+      logger.logSecurity('User login completed', 'low', {
         userId: result.user.id,
         email: this.maskEmail(email),
         ip: req.context?.ip || 'unknown',
@@ -241,12 +206,19 @@ class AuthController {
       });
 
       return res.status(200).json(
-        this.formatSuccessResponse(result, 'Đăng nhập thành công', req)
+        this.formatSuccessResponse(
+          {
+            user: result.user,
+            tokens: result.tokens
+          },
+          result.message,
+          req
+        )
       );
     })
   ];
 
-  // Forgot password endpoint with validation and rate limiting
+  // Forgot password endpoint
   forgotPassword = [
     requestSizeLimit(),
     passwordResetRateLimit,
@@ -261,31 +233,19 @@ class AuthController {
         requestId: req.context?.requestId
       });
 
-      const result = await MetricsCollector.trackOperation('forgotPassword', async () => {
-        return await authService.forgotPassword(email);
-      });
-
-      const duration = req.context ? Date.now() - req.context.startTime : 0;
-      requestLogger.info('Forgot password email sent', {
-        email: this.maskEmail(email),
-        duration,
-        requestId: req.context?.requestId
-      });
-
-      // Log security event
-      logger.logSecurity('Password reset requested', 'medium', {
-        email: this.maskEmail(email),
-        ip: req.context?.ip || 'unknown',
-        requestId: req.context?.requestId
-      });
+      const result = await authService.forgotPassword(email);
 
       return res.status(200).json(
-        this.formatSuccessResponse(result, result.message, req)
+        this.formatSuccessResponse(
+          {},
+          result.message,
+          req
+        )
       );
     })
   ];
 
-  // Reset password endpoint with validation and rate limiting
+  // Reset password endpoint
   resetPassword = [
     requestSizeLimit(),
     passwordResetRateLimit,
@@ -295,76 +255,68 @@ class AuthController {
       const requestLogger = req.logger || logger;
 
       requestLogger.info('Password reset attempt', {
-        tokenExists: !!token,
-        ip: req.context?.ip,
+        hasToken: !!token,
         requestId: req.context?.requestId
       });
 
-      const result = await MetricsCollector.trackOperation('resetPassword', async () => {
-        return await authService.resetPassword(token, newPassword, confirmNewPassword);
-      });
+      const result = await authService.resetPassword(token, newPassword, confirmNewPassword);
 
-      const duration = req.context ? Date.now() - req.context.startTime : 0;
       requestLogger.info('Password reset successful', {
-        duration,
-        requestId: req.context?.requestId
-      });
-
-      // Log security event
-      logger.logSecurity('Password reset completed', 'medium', {
-        ip: req.context?.ip || 'unknown',
         requestId: req.context?.requestId
       });
 
       return res.status(200).json(
-        this.formatSuccessResponse(result, result.message, req)
+        this.formatSuccessResponse(
+          {},
+          result.message,
+          req
+        )
       );
     })
   ];
 
-  // Email verification endpoint with validation and rate limiting
+  // Verify email endpoint
   verifyEmail = [
+    requestSizeLimit(),
     emailVerificationRateLimit,
-    validateVerifyEmail,
     asyncHandler(async (req: AuthRequest, res: Response) => {
-      const { token } = req.query;
+      const { token } = req.body;
       const requestLogger = req.logger || logger;
 
-      // Note: Token validation is now handled by validateVerifyEmail validator
+      if (!token) {
+        throw new ValidationError(
+          'Token xác thực là bắt buộc',
+          'VALIDATION_4007_MISSING_TOKEN'
+        );
+      }
 
       requestLogger.info('Email verification attempt', {
-        tokenExists: !!token,
-        ip: req.context?.ip,
+        hasToken: !!token,
         requestId: req.context?.requestId
       });
 
-      const result = await MetricsCollector.trackOperation('verifyEmail', async () => {
-        return await authService.verifyEmail(token as string);
-      });
+      const result = await authService.verifyEmail(token);
 
-      const duration = req.context ? Date.now() - req.context.startTime : 0;
       requestLogger.info('Email verification successful', {
-        duration,
-        requestId: req.context?.requestId
-      });
-
-      // Log security event
-      logger.logSecurity('Email verification completed', 'low', {
-        ip: req.context?.ip || 'unknown',
+        userId: result.userId,
         requestId: req.context?.requestId
       });
 
       return res.status(200).json(
-        this.formatSuccessResponse(result, result.message, req)
+        this.formatSuccessResponse(
+          { userId: result.userId },
+          result.message,
+          req
+        )
       );
     })
   ];
 
-  // Resend verification email endpoint with validation and rate limiting
+  // Resend verification email endpoint
   resendVerificationEmail = [
     requestSizeLimit(),
     emailVerificationRateLimit,
-    validateResendVerification,
+    validateForgotPassword, // Reuse same validation (just email)
     asyncHandler(async (req: AuthRequest, res: Response) => {
       const { email } = req.body;
       const requestLogger = req.logger || logger;
@@ -375,100 +327,61 @@ class AuthController {
         requestId: req.context?.requestId
       });
 
-      const result = await MetricsCollector.trackOperation('resendVerification', async () => {
-        return await authService.resendVerificationEmail(email);
-      });
-
-      const duration = req.context ? Date.now() - req.context.startTime : 0;
-      requestLogger.info('Verification email resent', {
-        email: this.maskEmail(email),
-        duration,
-        requestId: req.context?.requestId
-      });
+      const result = await authService.resendVerificationEmail(email);
 
       return res.status(200).json(
-        this.formatSuccessResponse(result, 'Email xác thực đã được gửi lại', req)
+        this.formatSuccessResponse(
+          {},
+          result.message,
+          req
+        )
       );
     })
   ];
 
-  // Logout endpoint - public endpoint that only requires refreshToken
+  // Logout endpoint
   logout = [
-    requestSizeLimit(),
     asyncHandler(async (req: AuthRequest, res: Response) => {
       const { refreshToken } = req.body;
       const requestLogger = req.logger || logger;
 
-      // Note: This is a public endpoint - no authHeader required
-      // Only refreshToken in body is needed for logout
-
-      if (!refreshToken) {
-        throw new ValidationError(
-          'Refresh token không được cung cấp',
-          'AUTH_4017_MISSING_REFRESH_TOKEN'
-        );
-      }
-
-      requestLogger.info('User logout attempt', {
+      requestLogger.info('User logout request', {
         hasRefreshToken: !!refreshToken,
-        ip: req.context?.ip,
         requestId: req.context?.requestId
       });
 
-      // Invalidate refresh token
-      await MetricsCollector.trackOperation('logout', async () => {
-        await authService.logout(refreshToken);
-      });
+      const result = await authService.logout(refreshToken);
 
-      const duration = req.context ? Date.now() - req.context.startTime : 0;
       requestLogger.info('User logout successful', {
-        duration,
-        requestId: req.context?.requestId
-      });
-
-      // Log security event
-      logger.logSecurity('User logout completed', 'low', {
-        ip: req.context?.ip || 'unknown',
         requestId: req.context?.requestId
       });
 
       return res.status(200).json(
-        this.formatSuccessResponse({}, 'Đăng xuất thành công', req)
+        this.formatSuccessResponse(
+          {},
+          result.message,
+          req
+        )
       );
     })
   ];
 
-  // Health check endpoint with enhanced caching
+  // Health check endpoint
   health = [
     asyncHandler(async (req: AuthRequest, res: Response) => {
-      // Check enhanced cache first
-      const cachedData = healthCacheUtil.get('default');
-      if (cachedData) {
-        return res.status(200).json(
-          this.formatSuccessResponse(cachedData, 'Auth service is healthy (cached)', req)
-        );
-      }
-
-      // Generate fresh health data
-      const healthData: HealthMetrics = {
+      const healthData = {
         status: 'healthy',
+        service: 'auth-service',
         timestamp: new Date().toISOString(),
+        version: process.env.APP_VERSION || '1.0.0',
         uptime: process.uptime(),
-        memory: process.memoryUsage(),
-        cpu: process.cpuUsage(),
-        nodeVersion: process.version,
-        environment: process.env.NODE_ENV || 'development',
-        version: process.env.npm_package_version || '1.0.0'
+        memory: process.memoryUsage()
       };
 
-      // Cache the result using enhanced cache
-      healthCacheUtil.set(healthData, 'default');
-
-      return res.status(200).json(
-        this.formatSuccessResponse(healthData, 'Auth service is healthy', req)
-      );
+      return res.status(200).json(healthData);
     })
   ];
 }
 
+// Export singleton instance
 export const authController = new AuthController(); 

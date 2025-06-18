@@ -20,7 +20,7 @@ import {
   validateUpdateProfile,
   validateUpdatePreferences,
   validateUserId
-} from '../validators/user.validators';
+} from '../schemas/user.schemas';
 
 const prisma = new PrismaClient();
 
