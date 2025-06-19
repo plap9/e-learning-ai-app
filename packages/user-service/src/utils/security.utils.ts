@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { Request } from 'express';
-import { AuthenticationError, SystemError } from './errors';
+import { AuthenticationError, SystemError } from '../exceptions/errors';
 
 // Internal service token verification
 export interface InternalTokenPayload {
