@@ -1,0 +1,188 @@
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  StatusBar,
+  ScrollView,
+  Alert,
+  TouchableOpacity,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+
+import { Theme } from '../../constants/theme';
+import { ResponsiveUtils } from '../../utils/responsive.utils';
+import { BaseScreenProps } from '../../types/common.types';
+import { Button, Input } from '../../components/ui';
+
+// Validation schema
+const forgotPasswordSchema = z.object({
+  emailOrPhone: z.string().min(1, 'Vui lòng nhập email hoặc số điện thoại'),
+});
+
+interface ForgotPasswordFormData {
+  emailOrPhone: string;
+}
+
+interface ForgotPasswordScreenProps extends BaseScreenProps {}
+
+export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
+  const [isLoading, setIsLoading] = useState(false);
+
+  const {
+    control,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<ForgotPasswordFormData>({
+    resolver: zodResolver(forgotPasswordSchema),
+    defaultValues: {
+      emailOrPhone: '',
+    },
+  });
+
+  const handleSendCode = async (data: ForgotPasswordFormData) => {
+    setIsLoading(true);
+    try {
+      // TODO: Implement actual forgot password logic
+      console.log('Forgot password data:', data);
+      
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // Navigate to verification with forgot password context
+      navigation.navigate('Verify', { 
+        context: 'forgot_password',
+        emailOrPhone: data.emailOrPhone 
+      });
+    } catch (error) {
+      Alert.alert('Lỗi', 'Không thể gửi mã. Vui lòng thử lại.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const navigateToLogin = () => {
+    navigation.navigate('Login');
+  };
+
+  const containerStyle = {
+    ...styles.container,
+    paddingTop: insets.top,
+  };
+
+  return (
+    <View style={containerStyle}>
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="transparent"
+        translucent
+      />
+      
+      <LinearGradient
+        colors={Theme.gradients.splashBgGradient}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.formContainer}>
+          <View style={styles.header}>
+            <Text style={styles.title}>Quên mật khẩu</Text>
+            <Text style={styles.subtitle}>Nhập email của bạn để nhận mã xác thực.</Text>
+          </View>
+
+          <View style={styles.form}>
+            <Controller
+              control={control}
+              name="emailOrPhone"
+              render={({ field: { onChange, onBlur, value } }) => (
+                <Input
+                  label="Email hoặc số điện thoại"
+                  value={value}
+                  onChangeText={onChange}
+                  onBlur={onBlur}
+                  placeholder="you@example.com"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  error={errors.emailOrPhone?.message}
+                />
+              )}
+            />
+
+            <Button
+              title="Gửi mã"
+              onPress={handleSubmit(handleSendCode)}
+              loading={isLoading}
+              fullWidth
+              style={styles.sendCodeButton}
+            />
+
+            <View style={styles.loginLinkContainer}>
+              <TouchableOpacity onPress={navigateToLogin}>
+                <Text style={styles.loginLinkAction}>Quay lại Đăng nhập</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Theme.colors.backgroundMain,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: ResponsiveUtils.getResponsivePadding().horizontal,
+    paddingVertical: ResponsiveUtils.scaleHeight(40),
+  },
+  formContainer: {
+    gap: ResponsiveUtils.scaleHeight(25),
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: ResponsiveUtils.scaleHeight(10),
+  },
+  title: {
+    fontSize: ResponsiveUtils.scaleFontSize(28),
+    fontWeight: Theme.fontWeights.bold,
+    color: Theme.colors.cosmicSoftContrast,
+    textAlign: 'center',
+    marginBottom: ResponsiveUtils.scaleHeight(8),
+  },
+  subtitle: {
+    fontSize: ResponsiveUtils.scaleFontSize(16),
+    color: Theme.colors.inactiveGray,
+    textAlign: 'center',
+  },
+  form: {
+    gap: ResponsiveUtils.scaleHeight(20),
+  },
+  sendCodeButton: {
+    marginTop: ResponsiveUtils.scaleHeight(10),
+  },
+  loginLinkContainer: {
+    alignItems: 'center',
+    marginTop: ResponsiveUtils.scaleHeight(10),
+  },
+  loginLinkAction: {
+    fontSize: ResponsiveUtils.scaleFontSize(14),
+    color: Theme.colors.softAuroraPurple,
+    fontWeight: Theme.fontWeights.semibold,
+  },
+}); 
